@@ -69,13 +69,13 @@ python run.py --config config.yaml
 * **llama-cli**
 
   ```
-  /home/pi/Downloads/llama.cpp/build/bin/llama-cli
+  /path/to/your/llama-cli
   ```
 
 * **Model (GGUF)**
 
   ```
-  /home/pi/.cache/huggingface/hub/models--ggml-org--gemma-3-1b-it-GGUF/snapshots/f9c28bcd85737ffc5aef028638d3341d49869c27/gemma-3-1b-it-Q4_K_M.gguf
+  /path/to/your/gemma-3-1b-it-Q4_K_M.gguf
   ```
 
 👉 Modify paths in:
