@@ -74,7 +74,7 @@ class ServerSessionTests(unittest.TestCase):
         self.assertEqual(request["body"]["messages"][-1], {"role": "user", "content": "hello"})
         self.assertEqual(request["body"]["max_tokens"], 64)
         self.assertEqual(request["body"]["temperature"], 0.2)
-        self.assertIn("<end_of_turn>", request["body"]["stop"])
+        self.assertNotIn("stop", request["body"])
 
     def test_server_session_falls_back_to_completion_with_gemma_template(self) -> None:
         FakeConnection.responses.extend(

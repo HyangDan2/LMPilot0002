@@ -211,7 +211,6 @@ class LlamaServerSession:
             "messages": messages,
             "max_tokens": self.config.n_predict,
             "stream": False,
-            "stop": DEFAULT_SERVER_STOP_SEQUENCES,
         }
         payload.update(self._extra_args_as_payload())
         return payload
