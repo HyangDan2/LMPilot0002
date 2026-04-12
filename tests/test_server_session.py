@@ -103,6 +103,29 @@ class ServerSessionTests(unittest.TestCase):
         self.assertTrue(completion_body["prompt"].endswith("<start_of_turn>model"))
         self.assertIn("\n[You]", completion_body["stop"])
 
+    def test_server_session_treats_slash_auto_as_auto_endpoint(self) -> None:
+        FakeConnection.responses.extend(
+            [
+                FakeResponse(404, {"error": "not found"}),
+                FakeResponse(200, {"content": "fallback answer"}),
+            ]
+        )
+        session = self.make_session(
+            ConsoleConfig(
+                llama_cli_path="/unused",
+                model_path="/unused",
+                server_url="http://127.0.0.1:8080",
+                server_endpoint="/auto",
+            )
+        )
+        prompt = build_model_prompt_request([], "hello", 100)
+
+        answer = session.ask(prompt)
+
+        self.assertEqual(answer, "fallback answer")
+        self.assertEqual(FakeConnection.requests[0]["endpoint"], "/v1/chat/completions")
+        self.assertEqual(FakeConnection.requests[1]["endpoint"], "/completion")
+
     def test_server_session_completion_endpoint_uses_gemma_template_directly(self) -> None:
         FakeConnection.responses.append(FakeResponse(200, {"content": "completion answer"}))
         session = self.make_session(

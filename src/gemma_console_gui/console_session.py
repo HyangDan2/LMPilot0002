@@ -148,8 +148,8 @@ class LlamaServerSession:
         return http.client.HTTPConnection(parsed.hostname, port=port, timeout=timeout)
 
     def _endpoint_candidates(self) -> list[tuple[str, str]]:
-        endpoint = (self.config.server_endpoint or "auto").strip()
-        if endpoint.lower() == "auto":
+        endpoint = self._normalized_server_endpoint()
+        if endpoint == "auto":
             return [("chat", "/v1/chat/completions"), ("completion", "/completion")]
         if "chat/completions" in endpoint:
             return [("chat", endpoint)]
@@ -157,10 +157,18 @@ class LlamaServerSession:
 
     def _should_try_next_endpoint(self, mode: str, status: int) -> bool:
         return (
-            (self.config.server_endpoint or "auto").strip().lower() == "auto"
+            self._normalized_server_endpoint() == "auto"
             and mode == "chat"
             and status in {400, 404, 405}
         )
+
+    def _normalized_server_endpoint(self) -> str:
+        endpoint = (self.config.server_endpoint or "auto").strip()
+        if endpoint.lower() in {"auto", "/auto"}:
+            return "auto"
+        if not endpoint.startswith("/"):
+            return f"/{endpoint}"
+        return endpoint
 
     def _post_json(self, endpoint: str, payload: dict[str, object]) -> tuple[int, str]:
         body = json.dumps(payload).encode("utf-8")
