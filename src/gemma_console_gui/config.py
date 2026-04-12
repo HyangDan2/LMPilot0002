@@ -21,6 +21,8 @@ class AppConfig:
     window_title: str = "Gemma Console GUI (PySide6)"
     window_width: int = 1000
     window_height: int = 720
+    response_token_reserve: int = 256
+    max_prompt_chars: int = 12000
 
 
 def load_config(path: str) -> AppConfig:
@@ -50,4 +52,6 @@ def load_config(path: str) -> AppConfig:
         window_title=raw.get("window_title", "Gemma Console GUI (PySide6)"),
         window_width=int(raw.get("window_width", 1000)),
         window_height=int(raw.get("window_height", 720)),
+        response_token_reserve=int(raw.get("response_token_reserve", 256)),
+        max_prompt_chars=int(raw.get("max_prompt_chars", 12000)),
     )

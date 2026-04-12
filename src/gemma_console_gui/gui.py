@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+import traceback
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from .config import AppConfig
 from .console_session import ConsoleSessionError, LlamaConsoleSession
 from .database import ChatRepository
-from .token_handler import limit_prompt_text, prompt_token_budget
+from .token_handler import build_model_prompt, normalize_prompt_text, prompt_token_budget
 
 UNICODE_ESCAPE_RE = re.compile(r'\\u[0-9a-fA-F]{4}|/u[0-9a-fA-F]{4}')
 
@@ -49,30 +49,25 @@ def strip_unsupported_chars(text: str) -> str:
     return ''.join(ch for ch in text if ord(ch) <= 0xFFFF)
 
 
-@dataclass
-class ChatTask:
-    session_id: int
-    user_text: str
-
-
 class ChatWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, console: LlamaConsoleSession, user_text: str) -> None:
+    def __init__(self, console: LlamaConsoleSession, prompt_text: str) -> None:
         super().__init__()
         self.console = console
-        self.user_text = user_text
-        self.max_prompt_tokens = prompt_token_budget(console.config.ctx_size)
+        self.prompt_text = prompt_text
 
     @Slot()
     def run(self) -> None:
         try:
-            limited_user_text = limit_prompt_text(self.user_text, self.max_prompt_tokens)
-            answer = self.console.ask(limited_user_text)
+            answer = self.console.ask(self.prompt_text)
             self.finished.emit(answer)
-        except (ConsoleSessionError, Exception) as exc:
+        except ConsoleSessionError as exc:
             self.error.emit(str(exc))
+        except Exception:
+            traceback.print_exc()
+            self.error.emit('Unexpected internal error while generating a response.')
 
 
 class MainWindow(QMainWindow):
@@ -179,8 +174,12 @@ class MainWindow(QMainWindow):
         try:
             self.console.start()
             self._set_status('Idle')
-        except Exception as exc:
+        except ConsoleSessionError as exc:
             QMessageBox.critical(self, 'Startup Error', str(exc))
+            self._set_status('Startup error')
+        except Exception as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self, 'Startup Error', f'Unexpected startup error: {exc}')
             self._set_status('Startup error')
 
     def _set_status(self, text: str) -> None:
@@ -218,17 +217,36 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
 
         assert self.current_session_id is not None
-        max_prompt_tokens = prompt_token_budget(self.console.config.ctx_size)
-        limited_user_text = limit_prompt_text(user_text, max_prompt_tokens)
-        was_limited = limited_user_text != user_text
+        display_user_text = normalize_prompt_text(user_text)
+        if not display_user_text:
+            return
+
+        prior_messages = self.repository.get_messages(self.current_session_id)
+        max_prompt_tokens = prompt_token_budget(
+            self.console.config.ctx_size,
+            self.app_config.response_token_reserve,
+        )
+        model_prompt = build_model_prompt(
+            prior_messages,
+            display_user_text,
+            max_prompt_tokens,
+            self.app_config.max_prompt_chars,
+        )
+        unlimited_model_prompt = build_model_prompt(
+            prior_messages,
+            display_user_text,
+            1_000_000,
+            10_000_000,
+        )
+        was_limited = display_user_text != user_text or model_prompt != unlimited_model_prompt
         self.input_edit.clear()
-        self._append_block('You', limited_user_text)
+        self._append_block('You', display_user_text)
         if was_limited:
-            self._append_block('System', 'Your message was shortened to fit the configured context limit.')
-        self.repository.add_message(self.current_session_id, 'user', limited_user_text)
+            self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
+        self.repository.add_message(self.current_session_id, 'user', display_user_text)
         self._generation_stop_requested = False
         self._set_busy(True, 'Generating response...')
-        self._start_worker(limited_user_text)
+        self._start_worker(model_prompt)
 
     @Slot()
     def on_stop_generation(self) -> None:
@@ -240,9 +258,9 @@ class MainWindow(QMainWindow):
         self._set_status('Stopping response...')
         self.console.stop_generation()
 
-    def _start_worker(self, user_text: str) -> None:
+    def _start_worker(self, prompt_text: str) -> None:
         self._worker_thread = QThread()
-        self._worker = ChatWorker(self.console, user_text)
+        self._worker = ChatWorker(self.console, prompt_text)
         self._worker.moveToThread(self._worker_thread)
         self._worker_thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_generation_success)

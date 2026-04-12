@@ -2,8 +2,8 @@ import unittest
 
 from src.gemma_console_gui.gui import normalize_text_for_display
 from src.gemma_console_gui.token_handler import (
+    build_model_prompt,
     handle_token_limits,
-    limit_prompt_text,
     normalize_prompt_text,
     prompt_token_budget,
     truncate_text_to_char_budget,
@@ -29,12 +29,41 @@ class TextProcessingTests(unittest.TestCase):
 
     def test_char_limit_truncates_text_without_spaces(self) -> None:
         self.assertEqual(truncate_text_to_char_budget("abcdef", 3), "abc")
-        self.assertEqual(limit_prompt_text("abcdef", max_tokens=10, max_chars=3), "abc")
+        self.assertEqual(build_model_prompt([], "abcdef", max_tokens=10, max_chars=9), "[You]\nabc")
 
-    def test_prompt_normalization_collapses_multiline_paste(self) -> None:
+    def test_prompt_normalization_preserves_multiline_paste(self) -> None:
         text = "Summarize this\n\n첫 문장입니다.\n￼\n둘째 문장입니다."
-        self.assertEqual(normalize_prompt_text(text), "Summarize this 첫 문장입니다. 둘째 문장입니다.")
-        self.assertEqual(limit_prompt_text(text, max_tokens=20), "Summarize this 첫 문장입니다. 둘째 문장입니다.")
+        self.assertEqual(normalize_prompt_text(text), "Summarize this\n\n첫 문장입니다.\n\n둘째 문장입니다.")
+
+    def test_prompt_normalization_preserves_code_structure(self) -> None:
+        text = "Traceback:\r\n  File \"app.py\", line 1\r\n    raise ValueError()\r\nValueError"
+        self.assertEqual(
+            normalize_prompt_text(text),
+            "Traceback:\n  File \"app.py\", line 1\n    raise ValueError()\nValueError",
+        )
+
+    def test_build_model_prompt_includes_history(self) -> None:
+        messages = [
+            {"role": "user", "content": "Here is some code:\n    print('hi')"},
+            {"role": "assistant", "content": "It prints hi."},
+        ]
+        prompt = build_model_prompt(messages, "Explain the previous code again.", 100)
+        self.assertIn("[You]\nHere is some code:\n    print('hi')", prompt)
+        self.assertIn("[Gemma]\nIt prints hi.", prompt)
+        self.assertTrue(prompt.endswith("[You]\nExplain the previous code again."))
+
+    def test_build_model_prompt_trims_oldest_turns_first(self) -> None:
+        messages = [
+            {"role": "user", "content": "old user context " * 10},
+            {"role": "assistant", "content": "old assistant context " * 10},
+            {"role": "user", "content": "newer user"},
+            {"role": "assistant", "content": "newer assistant"},
+        ]
+        prompt = build_model_prompt(messages, "current question", max_tokens=12)
+        self.assertNotIn("old user context", prompt)
+        self.assertNotIn("old assistant context", prompt)
+        self.assertIn("newer assistant", prompt)
+        self.assertIn("current question", prompt)
 
     def test_prompt_token_budget_reserves_response_space(self) -> None:
         self.assertEqual(prompt_token_budget(128, 32), 96)

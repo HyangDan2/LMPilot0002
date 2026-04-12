@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 DEFAULT_RESPONSE_TOKEN_RESERVE = 256
 DEFAULT_MAX_PROMPT_CHARS = 12000
 OBJECT_REPLACEMENT_CHAR = "\ufffc"
+TURN_SEPARATOR = "\n\n"
+
+ROLE_LABELS = {
+    "user": "You",
+    "assistant": "Gemma",
+    "system": "System",
+}
 
 
 def estimate_token_count(text: str) -> int:
@@ -12,22 +21,55 @@ def estimate_token_count(text: str) -> int:
 
 
 def truncate_text_to_token_budget(text: str, max_tokens: int) -> str:
-    """Trim text to the configured approximate token budget."""
+    """Trim text to the configured approximate token budget while keeping lines."""
     if max_tokens <= 0:
         return ""
 
-    words = text.split()
-    if len(words) <= max_tokens:
-        return text
-    return " ".join(words[:max_tokens])
+    remaining = max_tokens
+    kept_lines: list[str] = []
+
+    for line in text.splitlines():
+        words = line.split()
+        if not words:
+            kept_lines.append("")
+            continue
+
+        if len(words) <= remaining:
+            kept_lines.append(line)
+            remaining -= len(words)
+            continue
+
+        if remaining > 0:
+            leading_space_count = len(line) - len(line.lstrip())
+            kept_lines.append((" " * leading_space_count) + " ".join(words[:remaining]))
+        break
+
+    return "\n".join(kept_lines).rstrip()
 
 
-def normalize_prompt_text(text: str) -> str:
-    """Prepare pasted GUI text for one-line console submission."""
+def normalize_prompt_text(text: str, *, max_blank_lines: int = 1) -> str:
+    """Prepare pasted GUI text while preserving useful multiline structure."""
     if not isinstance(text, str):
         text = str(text)
-    text = text.replace(OBJECT_REPLACEMENT_CHAR, " ")
-    return " ".join(text.split())
+
+    text = text.replace(OBJECT_REPLACEMENT_CHAR, "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    lines = [line.rstrip() for line in text.split("\n")]
+    normalized_lines: list[str] = []
+    blank_count = 0
+
+    for line in lines:
+        if line.strip() == "":
+            blank_count += 1
+            if blank_count <= max_blank_lines:
+                normalized_lines.append("")
+            continue
+
+        blank_count = 0
+        normalized_lines.append(line)
+
+    return "\n".join(normalized_lines).strip()
 
 
 def truncate_text_to_char_budget(text: str, max_chars: int = DEFAULT_MAX_PROMPT_CHARS) -> str:
@@ -64,16 +106,74 @@ def handle_token_limits(conversation: list[str], max_tokens: int) -> list[str]:
     return [turn for turn in selected if turn]
 
 
-def limit_prompt_text(
-    text: str,
+def _join_turns(turns: list[str]) -> str:
+    return TURN_SEPARATOR.join(turns)
+
+
+def _text_fits_budget(text: str, max_tokens: int, max_chars: int) -> bool:
+    return estimate_token_count(text) <= max_tokens and len(text) <= max_chars
+
+
+def trim_turns_to_budget(
+    turns: list[str],
+    max_tokens: int,
+    max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+) -> list[str]:
+    """Keep the newest turns that fit the prompt budget."""
+    if max_tokens <= 0 or max_chars <= 0:
+        return []
+
+    selected_newest_first: list[str] = []
+
+    for turn in reversed([turn for turn in turns if turn]):
+        candidate_newest_first = selected_newest_first + [turn]
+        candidate = _join_turns(list(reversed(candidate_newest_first)))
+
+        if _text_fits_budget(candidate, max_tokens, max_chars):
+            selected_newest_first = candidate_newest_first
+            continue
+
+        if selected_newest_first:
+            break
+
+        truncated = truncate_text_to_char_budget(turn, max_chars)
+        truncated = truncate_text_to_token_budget(truncated, max_tokens)
+        if truncated:
+            selected_newest_first = [truncated]
+        break
+
+    return list(reversed(selected_newest_first))
+
+
+def format_prompt_turn(role: str, content: str) -> str:
+    label = ROLE_LABELS.get(role, role.title())
+    normalized_content = normalize_prompt_text(content)
+    if not normalized_content:
+        return ""
+    return f"[{label}]\n{normalized_content}"
+
+
+def build_model_prompt(
+    messages: list[dict[str, Any]],
+    current_user_text: str,
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
 ) -> str:
-    """Apply both approximate token and character limits to a prompt."""
-    normalized = normalize_prompt_text(text)
-    char_limited = truncate_text_to_char_budget(normalized, max_chars)
-    limited_turns = handle_token_limits([char_limited], max_tokens)
-    return limited_turns[0] if limited_turns else ""
+    """Build the final history-aware prompt sent to the model."""
+    turns: list[str] = []
+
+    for message in messages:
+        role = str(message.get("role", ""))
+        content = str(message.get("content", ""))
+        formatted_turn = format_prompt_turn(role, content)
+        if formatted_turn:
+            turns.append(formatted_turn)
+
+    current_turn = format_prompt_turn("user", current_user_text)
+    if current_turn:
+        turns.append(current_turn)
+
+    return _join_turns(trim_turns_to_budget(turns, max_tokens, max_chars))
 
 
 def prompt_token_budget(ctx_size: int, reserve: int = DEFAULT_RESPONSE_TOKEN_RESERVE) -> int:

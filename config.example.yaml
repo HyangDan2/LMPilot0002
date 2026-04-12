@@ -10,3 +10,5 @@ db_path: "./data/app.db"
 window_title: "Gemma Console GUI (PySide6)"
 window_width: 1000
 window_height: 720
+response_token_reserve: 256
+max_prompt_chars: 12000
