@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+import traceback
+from typing import Protocol
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
-from PySide6.QtGui import QTextCursor, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -22,22 +23,25 @@ from PySide6.QtWidgets import (
 )
 
 from .config import AppConfig
-from .console_session import ConsoleSessionError, LlamaConsoleSession
+from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
+from .token_handler import ModelPrompt, build_model_prompt_request, normalize_prompt_text, prompt_token_budget
 
-UNICODE_ESCAPE_RE = re.compile(r'(\\u[0-9a-fA-F]{4})+|(/u[0-9a-fA-F]{4})+')
+UNICODE_ESCAPE_RE = re.compile(r'\\u[0-9a-fA-F]{4}|/u[0-9a-fA-F]{4}')
 
 
 def normalize_text_for_display(text: str) -> str:
     if not isinstance(text, str):
         return str(text)
-    if UNICODE_ESCAPE_RE.search(text):
-        fixed = text.replace('/u', '\\u')
+
+    def replace_escape(match: re.Match[str]) -> str:
+        fixed = match.group(0).replace('/u', '\\u')
         try:
-            return fixed.encode('utf-8').decode('unicode_escape')
-        except Exception:
-            return text
-    return text
+            return chr(int(fixed[2:], 16))
+        except ValueError:
+            return match.group(0)
+
+    return UNICODE_ESCAPE_RE.sub(replace_escape, text)
 
 
 def strip_unsupported_chars(text: str) -> str:
@@ -46,32 +50,38 @@ def strip_unsupported_chars(text: str) -> str:
     return ''.join(ch for ch in text if ord(ch) <= 0xFFFF)
 
 
-@dataclass
-class ChatTask:
-    session_id: int
-    user_text: str
+class ChatSession(Protocol):
+    config: ConsoleConfig
+
+    def start(self) -> None: ...
+    def stop(self, force: bool = False) -> None: ...
+    def stop_generation(self) -> None: ...
+    def ask(self, prompt_text: str | ModelPrompt) -> str: ...
 
 
 class ChatWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, console: LlamaConsoleSession, user_text: str) -> None:
+    def __init__(self, console: ChatSession, prompt_text: str | ModelPrompt) -> None:
         super().__init__()
         self.console = console
-        self.user_text = user_text
+        self.prompt_text = prompt_text
 
     @Slot()
     def run(self) -> None:
         try:
-            answer = self.console.ask(self.user_text)
+            answer = self.console.ask(self.prompt_text)
             self.finished.emit(answer)
-        except (ConsoleSessionError, Exception) as exc:
+        except ConsoleSessionError as exc:
             self.error.emit(str(exc))
+        except Exception:
+            traceback.print_exc()
+            self.error.emit('Unexpected internal error while generating a response.')
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, console: LlamaConsoleSession, repository: ChatRepository, app_config: AppConfig) -> None:
+    def __init__(self, console: ChatSession, repository: ChatRepository, app_config: AppConfig) -> None:
         super().__init__()
         self.console = console
         self.repository = repository
@@ -79,6 +89,7 @@ class MainWindow(QMainWindow):
         self.current_session_id: int | None = None
         self._worker_thread: QThread | None = None
         self._worker: ChatWorker | None = None
+        self._generation_stop_requested = False
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -95,6 +106,10 @@ class MainWindow(QMainWindow):
 
         self.send_btn = QPushButton('Send')
         self.send_btn.clicked.connect(self.on_send)
+
+        self.stop_btn = QPushButton('Stop')
+        self.stop_btn.setDisabled(True)
+        self.stop_btn.clicked.connect(self.on_stop_generation)
 
         self.new_chat_btn = QPushButton('New Chat')
         self.new_chat_btn.clicked.connect(self.on_new_chat)
@@ -122,6 +137,7 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addStretch(1)
         button_row.addWidget(self.clear_view_btn)
+        button_row.addWidget(self.stop_btn)
         button_row.addWidget(self.send_btn)
         right_layout.addLayout(button_row)
 
@@ -151,17 +167,29 @@ class MainWindow(QMainWindow):
         self.send_shortcut.activated.connect(self.on_send)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        try:
-            self.console.stop()
-        finally:
-            super().closeEvent(event)
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            self._generation_stop_requested = True
+            self.console.stop_generation()
+            self._worker_thread.quit()
+            self._worker_thread.wait(3000)
+            if self._worker_thread.isRunning():
+                self._set_status('Please wait for the current response to finish before closing.')
+                event.ignore()
+                return
+
+        self.console.stop()
+        super().closeEvent(event)
 
     def _init_console(self) -> None:
         try:
             self.console.start()
             self._set_status('Idle')
-        except Exception as exc:
+        except ConsoleSessionError as exc:
             QMessageBox.critical(self, 'Startup Error', str(exc))
+            self._set_status('Startup error')
+        except Exception as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self, 'Startup Error', f'Unexpected startup error: {exc}')
             self._set_status('Startup error')
 
     def _set_status(self, text: str) -> None:
@@ -199,15 +227,45 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
 
         assert self.current_session_id is not None
-        self.input_edit.clear()
-        self._append_block('You', user_text)
-        self.repository.add_message(self.current_session_id, 'user', user_text)
-        self._set_busy(True, 'Generating response...')
-        self._start_worker(user_text)
+        display_user_text = normalize_prompt_text(user_text)
+        if not display_user_text:
+            return
 
-    def _start_worker(self, user_text: str) -> None:
+        prior_messages = self.repository.get_messages(self.current_session_id)
+        max_prompt_tokens = prompt_token_budget(
+            self.console.config.ctx_size,
+            self.app_config.response_token_reserve,
+        )
+        model_prompt = build_model_prompt_request(
+            prior_messages,
+            display_user_text,
+            max_prompt_tokens,
+            self.app_config.max_prompt_chars,
+            self.app_config.system_prompt,
+        )
+        was_limited = display_user_text != user_text or model_prompt.was_limited
+        self.input_edit.clear()
+        self._append_block('You', display_user_text)
+        if was_limited:
+            self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
+        self.repository.add_message(self.current_session_id, 'user', display_user_text)
+        self._generation_stop_requested = False
+        self._set_busy(True, 'Generating response...')
+        self._start_worker(model_prompt)
+
+    @Slot()
+    def on_stop_generation(self) -> None:
+        if self._worker_thread is None or not self._worker_thread.isRunning():
+            return
+
+        self._generation_stop_requested = True
+        self.stop_btn.setDisabled(True)
+        self._set_status('Stopping response...')
+        self.console.stop_generation()
+
+    def _start_worker(self, prompt_text: str | ModelPrompt) -> None:
         self._worker_thread = QThread()
-        self._worker = ChatWorker(self.console, user_text)
+        self._worker = ChatWorker(self.console, prompt_text)
         self._worker.moveToThread(self._worker_thread)
         self._worker_thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_generation_success)
@@ -219,6 +277,12 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _on_generation_success(self, answer: str) -> None:
+        if self._generation_stop_requested:
+            self._append_block('System', 'Generation stopped.')
+            self._generation_stop_requested = False
+            self._set_busy(False, 'Idle')
+            return
+
         if self.current_session_id is not None:
             self.repository.add_message(self.current_session_id, 'assistant', answer)
         self._append_block('Gemma', answer)
@@ -229,6 +293,12 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _on_generation_error(self, error_text: str) -> None:
+        if self._generation_stop_requested:
+            self._append_block('System', 'Generation stopped.')
+            self._generation_stop_requested = False
+            self._set_busy(False, 'Idle')
+            return
+
         self._append_block('System', f'Error: {error_text}')
         self._set_busy(False, 'Error')
 
@@ -243,6 +313,7 @@ class MainWindow(QMainWindow):
 
     def _set_busy(self, busy: bool, status_text: str) -> None:
         self.send_btn.setDisabled(busy)
+        self.stop_btn.setDisabled(not busy)
         self.new_chat_btn.setDisabled(busy)
         self.session_list.setDisabled(busy)
         self._set_status(status_text)
@@ -315,7 +386,7 @@ class MainWindow(QMainWindow):
         self._set_status('Session deleted')
 
 class ChatGUI:
-    def __init__(self, console: LlamaConsoleSession, repository: ChatRepository, app_config: AppConfig) -> None:
+    def __init__(self, console: ChatSession, repository: ChatRepository, app_config: AppConfig) -> None:
         self.console = console
         self.repository = repository
         self.app_config = app_config
@@ -323,6 +394,7 @@ class ChatGUI:
 
     def run(self) -> None:
         app = QApplication.instance() or QApplication([])
+        app.setFont(QFont("Arial"))
         window = MainWindow(self.console, self.repository, self.app_config)
         window.show()
         app.exec()

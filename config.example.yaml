@@ -1,6 +1,10 @@
-llama_cli_path: "/home/pi/Downloads/llama.cpp/build/bin/llama-cli"
-model_path: "/home/pi/.cache/huggingface/hub/models--ggml-org--gemma-3-1b-it-GGUF/snapshots/f9c28bcd85737ffc5aef028638d3341d49869c27/gemma-3-1b-it-Q4_K_M.gguf"
+backend: "server"
+server_url: "http://127.0.0.1:8080"
+server_endpoint: "auto"
+llama_cli_path: "/users/jaehyukshim/Documents/llm/llama.cpp/llama-cli"
+model_path: "/users/jaehyukshim/llmdev/gemma3-4b-Q4_K_M.gguf"
 system_prompt: "You are a helpful assistant."
+n_predict: 512
 threads: 4
 ctx_size: 2048
 extra_args: []
@@ -10,3 +14,5 @@ db_path: "./data/app.db"
 window_title: "Gemma Console GUI (PySide6)"
 window_width: 1000
 window_height: 720
+response_token_reserve: 256
+max_prompt_chars: 12000

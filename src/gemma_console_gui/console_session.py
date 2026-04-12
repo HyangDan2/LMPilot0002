@@ -1,16 +1,46 @@
 from __future__ import annotations
 
+import http.client
+import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 import pexpect
+
+from .token_handler import ModelPrompt
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 TIMING_LINE_RE = re.compile(r"^\[\s*Prompt:.*?\]\s*$", re.MULTILINE)
 PROMPT_RE = re.compile(r"(?m)^\s*>\s*$")
+ANSWER_CONTINUATION_RE = re.compile(
+    r"(?m)^\s*(?:"
+    r"\[You\]|"
+    r"<start_of_turn>user|"
+    r"User:|"
+    r"Human:|"
+    r"### User:|"
+    r"---\s*$|"
+    r"\*\*Key elements"
+    r")"
+)
+LEADING_ASSISTANT_LABEL_RE = re.compile(
+    r"^\s*(?:\[Gemma\]|Gemma:|Assistant:|<start_of_turn>model)\s*",
+    re.IGNORECASE,
+)
+
+DEFAULT_SERVER_STOP_SEQUENCES = [
+    "<end_of_turn>",
+    "<start_of_turn>user",
+    "\n[You]",
+    "\nUser:",
+    "\nHuman:",
+    "\n### User:",
+]
 
 BANNER_SKIP_PATTERNS = [
     re.compile(r"^available commands:\s*$", re.IGNORECASE),
@@ -37,12 +67,233 @@ class ConsoleSessionError(Exception):
 class ConsoleConfig:
     llama_cli_path: str
     model_path: str
+    backend: str = "server"
+    server_url: str = "http://127.0.0.1:8080"
+    server_endpoint: str = "auto"
+    n_predict: int = 512
     system_prompt: Optional[str] = None
     threads: int = 4
     ctx_size: int = 2048
     extra_args: Optional[list[str]] = None
     startup_timeout: float = 180.0
     response_timeout: float = 180.0
+
+
+class LlamaServerSession:
+    def __init__(self, config: ConsoleConfig) -> None:
+        self.config = config
+        self._active_connection: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
+        self._lock = threading.Lock()
+        self._started = False
+        self._stop_requested = False
+
+    def start(self) -> None:
+        self._validate_server_url()
+        self._started = True
+
+    def is_alive(self) -> bool:
+        return self._started
+
+    def ask(self, user_text: str | ModelPrompt) -> str:
+        if not self._prompt_has_text(user_text):
+            raise ConsoleSessionError("Empty prompt is not allowed.")
+
+        if not self.is_alive():
+            self.start()
+
+        last_response_body = ""
+        for mode, endpoint in self._endpoint_candidates():
+            payload = (
+                self._build_chat_payload(user_text)
+                if mode == "chat"
+                else self._build_completion_payload(user_text)
+            )
+            status, response_body = self._post_json(endpoint, payload)
+            if status >= 400:
+                last_response_body = response_body
+                if self._should_try_next_endpoint(mode, status):
+                    continue
+                raise ConsoleSessionError(
+                    f"llama-server returned HTTP {status} from {endpoint}: {response_body}"
+                )
+            answer = self._clean_server_answer(self._extract_server_answer(response_body))
+            if not answer.strip():
+                raise ConsoleSessionError("Model returned an empty response.")
+            return answer
+
+        raise ConsoleSessionError(f"llama-server did not return a usable response: {last_response_body}")
+
+    def stop(self, force: bool = False) -> None:
+        self.stop_generation()
+        self._started = False
+
+    def stop_generation(self) -> None:
+        with self._lock:
+            self._stop_requested = True
+            conn = self._active_connection
+        if conn is not None:
+            conn.close()
+
+    def _validate_server_url(self) -> None:
+        parsed = urlparse(self.config.server_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ConsoleSessionError(f"Invalid llama-server URL: {self.config.server_url}")
+
+    def _create_connection(self) -> http.client.HTTPConnection | http.client.HTTPSConnection:
+        parsed = urlparse(self.config.server_url)
+        port = parsed.port
+        timeout = self.config.response_timeout
+        if parsed.scheme == "https":
+            return http.client.HTTPSConnection(parsed.hostname, port=port, timeout=timeout)
+        return http.client.HTTPConnection(parsed.hostname, port=port, timeout=timeout)
+
+    def _endpoint_candidates(self) -> list[tuple[str, str]]:
+        endpoint = self._normalized_server_endpoint()
+        if endpoint == "auto":
+            return [("chat", "/v1/chat/completions"), ("completion", "/completion")]
+        if "chat/completions" in endpoint:
+            return [("chat", endpoint)]
+        return [("completion", endpoint)]
+
+    def _should_try_next_endpoint(self, mode: str, status: int) -> bool:
+        return (
+            self._normalized_server_endpoint() == "auto"
+            and mode == "chat"
+            and status in {400, 404, 405}
+        )
+
+    def _normalized_server_endpoint(self) -> str:
+        endpoint = (self.config.server_endpoint or "auto").strip()
+        if endpoint.lower() in {"auto", "/auto"}:
+            return "auto"
+        if not endpoint.startswith("/"):
+            return f"/{endpoint}"
+        return endpoint
+
+    def _post_json(self, endpoint: str, payload: dict[str, object]) -> tuple[int, str]:
+        body = json.dumps(payload).encode("utf-8")
+        conn = self._create_connection()
+
+        with self._lock:
+            self._stop_requested = False
+            self._active_connection = conn
+
+        try:
+            conn.request(
+                "POST",
+                endpoint,
+                body=body,
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            response_body = response.read().decode("utf-8", errors="replace")
+            return response.status, response_body
+        except (OSError, http.client.HTTPException) as exc:
+            if self._stop_requested:
+                raise ConsoleSessionError("Generation stopped.") from exc
+            raise ConsoleSessionError(f"llama-server request failed: {exc}") from exc
+        finally:
+            with self._lock:
+                if self._active_connection is conn:
+                    self._active_connection = None
+            conn.close()
+
+    def _build_chat_payload(self, prompt: str | ModelPrompt) -> dict[str, object]:
+        if isinstance(prompt, ModelPrompt):
+            messages = [dict(message) for message in prompt.messages]
+        else:
+            messages = [{"role": "user", "content": str(prompt)}]
+
+        if self.config.system_prompt and not any(message.get("role") == "system" for message in messages):
+            messages.insert(0, {"role": "system", "content": self.config.system_prompt})
+
+        payload: dict[str, object] = {
+            "messages": messages,
+            "max_tokens": self.config.n_predict,
+            "stream": False,
+        }
+        payload.update(self._extra_args_as_payload())
+        return payload
+
+    def _build_completion_payload(self, prompt: str | ModelPrompt) -> dict[str, object]:
+        if isinstance(prompt, ModelPrompt):
+            prompt_text = prompt.completion_prompt
+        else:
+            prompt_text = str(prompt)
+
+        payload: dict[str, object] = {
+            "prompt": prompt_text,
+            "n_predict": self.config.n_predict,
+            "stream": False,
+            "stop": DEFAULT_SERVER_STOP_SEQUENCES,
+        }
+        payload.update(self._extra_args_as_payload())
+        return payload
+
+    @staticmethod
+    def _prompt_has_text(prompt: str | ModelPrompt) -> bool:
+        if isinstance(prompt, ModelPrompt):
+            return bool(
+                prompt.completion_prompt.strip()
+                or any(message["content"].strip() for message in prompt.messages)
+            )
+        return bool(prompt.strip())
+
+    def _extra_args_as_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {}
+        for item in self.config.extra_args or []:
+            if "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            payload[key.strip()] = self._parse_payload_value(value.strip())
+        return payload
+
+    @staticmethod
+    def _parse_payload_value(value: str) -> object:
+        if value.lower() in {"true", "false"}:
+            return value.lower() == "true"
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            return float(value)
+        except ValueError:
+            return value
+
+    @staticmethod
+    def _extract_server_answer(response_body: str) -> str:
+        try:
+            data = json.loads(response_body)
+        except json.JSONDecodeError as exc:
+            raise ConsoleSessionError(f"Invalid llama-server JSON response: {response_body}") from exc
+
+        if isinstance(data, dict):
+            if isinstance(data.get("content"), str):
+                return data["content"].strip()
+            if isinstance(data.get("completion"), str):
+                return data["completion"].strip()
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                choice = choices[0]
+                if isinstance(choice, dict):
+                    text = choice.get("text")
+                    if isinstance(text, str):
+                        return text.strip()
+                    message = choice.get("message")
+                    if isinstance(message, dict) and isinstance(message.get("content"), str):
+                        return message["content"].strip()
+
+        raise ConsoleSessionError(f"Unsupported llama-server response: {response_body}")
+
+    @staticmethod
+    def _clean_server_answer(answer: str) -> str:
+        answer = answer.replace("<end_of_turn>", "").strip()
+        answer = LEADING_ASSISTANT_LABEL_RE.sub("", answer).strip()
+        match = ANSWER_CONTINUATION_RE.search(answer)
+        if match and match.start() > 0:
+            answer = answer[: match.start()]
+        return answer.strip()
 
 
 class LlamaConsoleSession:
@@ -83,7 +334,10 @@ class LlamaConsoleSession:
     def is_alive(self) -> bool:
         return self.child is not None and self.child.isalive()
 
-    def ask(self, user_text: str) -> str:
+    def ask(self, user_text: str | ModelPrompt) -> str:
+        if isinstance(user_text, ModelPrompt):
+            user_text = user_text.completion_prompt
+
         if not user_text.strip():
             raise ConsoleSessionError("Empty prompt is not allowed.")
 
@@ -122,6 +376,10 @@ class LlamaConsoleSession:
         finally:
             self.child = None
             self._started = False
+
+    def stop_generation(self) -> None:
+        """Interrupt the current response and reset the console for the next prompt."""
+        self.stop(force=True)
 
     def _validate_paths(self) -> None:
         if not os.path.isfile(self.config.llama_cli_path):
