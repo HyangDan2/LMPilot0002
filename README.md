@@ -9,7 +9,9 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 ## ✨ Features
 
 * 🖥️ PySide6 desktop GUI (clean chat interface)
-* 🔁 Local `llama-server` HTTP backend (`/v1/chat/completions` first, Gemma-template fallback)
+* 🔁 Local `llama-server` HTTP backend
+  * Tries `/v1/chat/completions` first
+  * Falls back to `/completion` with Gemma turn markers when chat completions are unavailable
 * 💾 SQLite-based local chat history
 * 🧹 ANSI / help banner / control sequence cleanup
 * 🔤 Unicode normalization (`/uXXXX`, `\\uXXXX`) support
@@ -35,6 +37,15 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
   ```
   Select a session or click New Chat.
   ```
+* 🧩 Prompt handling is history-aware:
+
+  * Stored session messages are included in the model request.
+  * Long context is trimmed from oldest turns first.
+  * Multiline pasted text, code, logs, JSON, and YAML are preserved as much as practical.
+* 🛑 Stop behavior:
+
+  * The Stop button interrupts the current request and returns the UI to an idle state.
+  * The next send should work without restarting the app.
 
 ---
 
@@ -60,15 +71,17 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp config.example.yaml config.yaml
-# edit config.yaml and set server_url if needed
-# keep server_endpoint: "auto" unless you need to force a specific endpoint
+# edit config.yaml for your local server/model settings
+# keep server_endpoint: "auto" unless you intentionally force an endpoint
 llama-server -m /path/to/your/model.gguf --host 127.0.0.1 --port 8080
 python run.py --config config.yaml
 ```
 
+`config.yaml` is intentionally ignored by git. Keep machine-specific paths and local server settings there. The checked-in `config.example.yaml` is the template.
+
 ---
 
-## ⚙️ Default Paths
+## ⚙️ Configuration
 
 * **llama-server URL**
 
@@ -82,8 +95,9 @@ python run.py --config config.yaml
   auto
   ```
 
-  The app tries `/v1/chat/completions` first, then falls back to `/completion`
-  with Gemma turn markers and stop sequences.
+  `auto` is recommended. The app tries `/v1/chat/completions` first, then falls back to `/completion`.
+
+  The app also accepts `/auto` and treats it the same as `auto`, but `auto` is clearer in config files.
 
 * **Model (GGUF)**
 
@@ -91,7 +105,25 @@ python run.py --config config.yaml
   /path/to/your/gemma-3-1b-it-Q4_K_M.gguf
   ```
 
-👉 Create and modify paths in:
+* **System prompt**
+
+  ```yaml
+  system_prompt: "You are a helpful assistant."
+  ```
+
+  In server mode, this is sent as the first structured system message when `/v1/chat/completions` is used. In `/completion` fallback mode, it is included in the Gemma-template prompt.
+
+* **Response length**
+
+  ```yaml
+  n_predict: 512
+  response_token_reserve: 256
+  max_prompt_chars: 12000
+  ```
+
+  If answers are too short, increase `n_predict`. If long pasted prompts are being trimmed too aggressively, increase `ctx_size` and `max_prompt_chars` in line with your model/server capacity.
+
+Create and modify local settings in:
 
 ```bash
 cp config.example.yaml config.yaml
@@ -107,6 +139,8 @@ GUI (PySide6)
    ├── QThread (ChatWorker)
    │       │
    │       └── LlamaServerSession (HTTP)
+   │              ├── /v1/chat/completions (preferred)
+   │              └── /completion (Gemma-template fallback)
    │
    ├── SQLite (ChatRepository)
    │
@@ -133,8 +167,9 @@ GUI (PySide6)
 
 ### 1. Model not loading
 
-* Check `config.yaml` paths
-* Verify `.gguf` file exists
+* Check your local `config.yaml` paths.
+* Verify the `.gguf` file exists.
+* `config.example.yaml` is only a template; copy it to `config.yaml` and edit it before running.
 
 ---
 
@@ -146,6 +181,20 @@ curl http://127.0.0.1:8080/health
 
 → confirm the server is reachable
 
+If you see an error like:
+
+```text
+llama-server returned HTTP 404 from /auto
+```
+
+Update to the latest branch and set:
+
+```yaml
+server_endpoint: "auto"
+```
+
+The current code treats both `auto` and `/auto` as automatic endpoint selection, but `auto` is the recommended spelling.
+
 ---
 
 ### 3. No response / stuck
@@ -153,10 +202,45 @@ curl http://127.0.0.1:8080/health
 * Check:
 
   * `llama-server` is running and reachable
+  * The GUI is using the latest code on the intended branch
+  * The local `config.yaml` points to the same host/port where `llama-server` is listening
 
 ---
 
-### 4. Broken characters (e.g. `\ufffd`)
+### 4. Output continues as fake dialogue
+
+If a simple prompt such as `Hey!` produces a long scripted conversation with extra `[You]` / `[Gemma]` turns, the app is likely using raw completion behavior without chat formatting.
+
+Current server behavior:
+
+* Prefer `/v1/chat/completions` with structured messages.
+* If unavailable, fall back to `/completion` using Gemma turn markers:
+
+  ```text
+  <start_of_turn>user
+  ...
+  <end_of_turn>
+  <start_of_turn>model
+  ```
+
+* In fallback mode, stop sequences are used to prevent the model from generating the next user turn.
+
+Start a new chat after updating if an older session already contains runaway generated dialogue; old history can influence the next answer.
+
+---
+
+### 5. Output is too short
+
+Short output can be normal if the model gives a concise answer, but check these settings:
+
+* `n_predict`: maximum generated tokens. Increase it for longer answers.
+* `server_endpoint`: keep it as `auto` so chat completions are preferred.
+
+The app does not send fallback stop sequences to `/v1/chat/completions`; those stop sequences are only used for raw `/completion` fallback to prevent runaway dialogue.
+
+---
+
+### 6. Broken characters (e.g. `\ufffd`)
 
 Handled internally by:
 
