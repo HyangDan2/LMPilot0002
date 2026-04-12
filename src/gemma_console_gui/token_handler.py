@@ -3,6 +3,7 @@ from __future__ import annotations
 
 DEFAULT_RESPONSE_TOKEN_RESERVE = 256
 DEFAULT_MAX_PROMPT_CHARS = 12000
+OBJECT_REPLACEMENT_CHAR = "\ufffc"
 
 
 def estimate_token_count(text: str) -> int:
@@ -19,6 +20,14 @@ def truncate_text_to_token_budget(text: str, max_tokens: int) -> str:
     if len(words) <= max_tokens:
         return text
     return " ".join(words[:max_tokens])
+
+
+def normalize_prompt_text(text: str) -> str:
+    """Prepare pasted GUI text for one-line console submission."""
+    if not isinstance(text, str):
+        text = str(text)
+    text = text.replace(OBJECT_REPLACEMENT_CHAR, " ")
+    return " ".join(text.split())
 
 
 def truncate_text_to_char_budget(text: str, max_chars: int = DEFAULT_MAX_PROMPT_CHARS) -> str:
@@ -61,7 +70,8 @@ def limit_prompt_text(
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
 ) -> str:
     """Apply both approximate token and character limits to a prompt."""
-    char_limited = truncate_text_to_char_budget(text, max_chars)
+    normalized = normalize_prompt_text(text)
+    char_limited = truncate_text_to_char_budget(normalized, max_chars)
     limited_turns = handle_token_limits([char_limited], max_tokens)
     return limited_turns[0] if limited_turns else ""
 
