@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
         self.current_session_id: int | None = None
         self._worker_thread: QThread | None = None
         self._worker: ChatWorker | None = None
+        self._generation_stop_requested = False
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -100,6 +101,10 @@ class MainWindow(QMainWindow):
 
         self.send_btn = QPushButton('Send')
         self.send_btn.clicked.connect(self.on_send)
+
+        self.stop_btn = QPushButton('Stop')
+        self.stop_btn.setDisabled(True)
+        self.stop_btn.clicked.connect(self.on_stop_generation)
 
         self.new_chat_btn = QPushButton('New Chat')
         self.new_chat_btn.clicked.connect(self.on_new_chat)
@@ -127,6 +132,7 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addStretch(1)
         button_row.addWidget(self.clear_view_btn)
+        button_row.addWidget(self.stop_btn)
         button_row.addWidget(self.send_btn)
         right_layout.addLayout(button_row)
 
@@ -157,6 +163,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         if self._worker_thread is not None and self._worker_thread.isRunning():
+            self._generation_stop_requested = True
+            self.console.stop_generation()
             self._worker_thread.quit()
             self._worker_thread.wait(3000)
             if self._worker_thread.isRunning():
@@ -218,8 +226,19 @@ class MainWindow(QMainWindow):
         if was_limited:
             self._append_block('System', 'Your message was shortened to fit the configured context limit.')
         self.repository.add_message(self.current_session_id, 'user', limited_user_text)
+        self._generation_stop_requested = False
         self._set_busy(True, 'Generating response...')
         self._start_worker(limited_user_text)
+
+    @Slot()
+    def on_stop_generation(self) -> None:
+        if self._worker_thread is None or not self._worker_thread.isRunning():
+            return
+
+        self._generation_stop_requested = True
+        self.stop_btn.setDisabled(True)
+        self._set_status('Stopping response...')
+        self.console.stop_generation()
 
     def _start_worker(self, user_text: str) -> None:
         self._worker_thread = QThread()
@@ -235,6 +254,12 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _on_generation_success(self, answer: str) -> None:
+        if self._generation_stop_requested:
+            self._append_block('System', 'Generation stopped.')
+            self._generation_stop_requested = False
+            self._set_busy(False, 'Idle')
+            return
+
         if self.current_session_id is not None:
             self.repository.add_message(self.current_session_id, 'assistant', answer)
         self._append_block('Gemma', answer)
@@ -245,6 +270,12 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _on_generation_error(self, error_text: str) -> None:
+        if self._generation_stop_requested:
+            self._append_block('System', 'Generation stopped.')
+            self._generation_stop_requested = False
+            self._set_busy(False, 'Idle')
+            return
+
         self._append_block('System', f'Error: {error_text}')
         self._set_busy(False, 'Error')
 
@@ -259,6 +290,7 @@ class MainWindow(QMainWindow):
 
     def _set_busy(self, busy: bool, status_text: str) -> None:
         self.send_btn.setDisabled(busy)
+        self.stop_btn.setDisabled(not busy)
         self.new_chat_btn.setDisabled(busy)
         self.session_list.setDisabled(busy)
         self._set_status(status_text)

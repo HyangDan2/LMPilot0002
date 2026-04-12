@@ -123,6 +123,10 @@ class LlamaConsoleSession:
             self.child = None
             self._started = False
 
+    def stop_generation(self) -> None:
+        """Interrupt the current response and reset the console for the next prompt."""
+        self.stop(force=True)
+
     def _validate_paths(self) -> None:
         if not os.path.isfile(self.config.llama_cli_path):
             raise ConsoleSessionError(f"llama-cli not found: {self.config.llama_cli_path}")
