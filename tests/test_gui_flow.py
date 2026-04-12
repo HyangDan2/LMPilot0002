@@ -73,7 +73,8 @@ class GuiFlowTests(unittest.TestCase):
 
         self.assertIn("assistant answer", window.chat_view.toPlainText())
         self.assertIn("[You]\nfirst", console.prompts[-1])
-        self.assertTrue(console.prompts[-1].endswith("[You]\nsecond"))
+        self.assertIn("[You]\nsecond", console.prompts[-1])
+        self.assertTrue(console.prompts[-1].endswith("[Gemma]"))
 
         window.close()
         process_events(self.app, 5)

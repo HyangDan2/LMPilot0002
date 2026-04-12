@@ -29,7 +29,8 @@ class TextProcessingTests(unittest.TestCase):
 
     def test_char_limit_truncates_text_without_spaces(self) -> None:
         self.assertEqual(truncate_text_to_char_budget("abcdef", 3), "abc")
-        self.assertEqual(build_model_prompt([], "abcdef", max_tokens=10, max_chars=9), "[You]\nabc")
+        self.assertEqual(build_model_prompt([], "abcdef", max_tokens=10, max_chars=18), "[You]\nabc\n\n[Gemma]")
+        self.assertEqual(build_model_prompt([], "abcdef", max_tokens=10, max_chars=25), "[You]\nabcdef\n\n[Gemma]")
 
     def test_prompt_normalization_preserves_multiline_paste(self) -> None:
         text = "Summarize this\n\n첫 문장입니다.\n￼\n둘째 문장입니다."
@@ -50,7 +51,7 @@ class TextProcessingTests(unittest.TestCase):
         prompt = build_model_prompt(messages, "Explain the previous code again.", 100)
         self.assertIn("[You]\nHere is some code:\n    print('hi')", prompt)
         self.assertIn("[Gemma]\nIt prints hi.", prompt)
-        self.assertTrue(prompt.endswith("[You]\nExplain the previous code again."))
+        self.assertTrue(prompt.endswith("[You]\nExplain the previous code again.\n\n[Gemma]"))
 
     def test_build_model_prompt_trims_oldest_turns_first(self) -> None:
         messages = [
@@ -64,6 +65,7 @@ class TextProcessingTests(unittest.TestCase):
         self.assertNotIn("old assistant context", prompt)
         self.assertIn("newer assistant", prompt)
         self.assertIn("current question", prompt)
+        self.assertTrue(prompt.endswith("[Gemma]"))
 
     def test_prompt_token_budget_reserves_response_space(self) -> None:
         self.assertEqual(prompt_token_budget(128, 32), 96)

@@ -7,6 +7,7 @@ DEFAULT_RESPONSE_TOKEN_RESERVE = 256
 DEFAULT_MAX_PROMPT_CHARS = 12000
 OBJECT_REPLACEMENT_CHAR = "\ufffc"
 TURN_SEPARATOR = "\n\n"
+ASSISTANT_PROMPT_CUE = "[Gemma]"
 
 ROLE_LABELS = {
     "user": "You",
@@ -173,7 +174,17 @@ def build_model_prompt(
     if current_turn:
         turns.append(current_turn)
 
-    return _join_turns(trim_turns_to_budget(turns, max_tokens, max_chars))
+    cue_token_cost = estimate_token_count(ASSISTANT_PROMPT_CUE)
+    cue_char_cost = len(TURN_SEPARATOR) + len(ASSISTANT_PROMPT_CUE)
+    trimmed_turns = trim_turns_to_budget(
+        turns,
+        max_tokens=max_tokens - cue_token_cost,
+        max_chars=max_chars - cue_char_cost,
+    )
+    if not trimmed_turns:
+        return ASSISTANT_PROMPT_CUE
+
+    return _join_turns(trimmed_turns + [ASSISTANT_PROMPT_CUE])
 
 
 def prompt_token_budget(ctx_size: int, reserve: int = DEFAULT_RESPONSE_TOKEN_RESERVE) -> int:

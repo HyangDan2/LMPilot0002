@@ -48,12 +48,12 @@ class ServerSessionTests(unittest.TestCase):
         )
         session._create_connection = FakeConnection  # type: ignore[method-assign]
 
-        answer = session.ask("[You]\nhello\n\n[Gemma]\n")
+        answer = session.ask("[You]\nhello\n\n[Gemma]")
 
         self.assertEqual(answer, "server answer")
         self.assertEqual(FakeConnection.requests[0]["method"], "POST")
         self.assertEqual(FakeConnection.requests[0]["endpoint"], "/completion")
-        self.assertEqual(FakeConnection.requests[0]["body"]["prompt"], "[You]\nhello\n\n[Gemma]\n")
+        self.assertEqual(FakeConnection.requests[0]["body"]["prompt"], "[You]\nhello\n\n[Gemma]")
         self.assertEqual(FakeConnection.requests[0]["body"]["n_predict"], 64)
         self.assertEqual(FakeConnection.requests[0]["body"]["temperature"], 0.2)
         self.assertTrue(FakeConnection.requests[0]["body"]["cache_prompt"])
