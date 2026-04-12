@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 DEFAULT_RESPONSE_TOKEN_RESERVE = 256
+DEFAULT_MAX_PROMPT_CHARS = 12000
 
 
 def estimate_token_count(text: str) -> int:
@@ -18,6 +19,15 @@ def truncate_text_to_token_budget(text: str, max_tokens: int) -> str:
     if len(words) <= max_tokens:
         return text
     return " ".join(words[:max_tokens])
+
+
+def truncate_text_to_char_budget(text: str, max_chars: int = DEFAULT_MAX_PROMPT_CHARS) -> str:
+    """Trim very long input, including no-space text that word counts cannot reduce."""
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip()
 
 
 def handle_token_limits(conversation: list[str], max_tokens: int) -> list[str]:
@@ -43,6 +53,17 @@ def handle_token_limits(conversation: list[str], max_tokens: int) -> list[str]:
 
     selected.reverse()
     return [turn for turn in selected if turn]
+
+
+def limit_prompt_text(
+    text: str,
+    max_tokens: int,
+    max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+) -> str:
+    """Apply both approximate token and character limits to a prompt."""
+    char_limited = truncate_text_to_char_budget(text, max_chars)
+    limited_turns = handle_token_limits([char_limited], max_tokens)
+    return limited_turns[0] if limited_turns else ""
 
 
 def prompt_token_budget(ctx_size: int, reserve: int = DEFAULT_RESPONSE_TOKEN_RESERVE) -> int:

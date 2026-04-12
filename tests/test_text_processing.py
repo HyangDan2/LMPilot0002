@@ -3,7 +3,9 @@ import unittest
 from src.gemma_console_gui.gui import normalize_text_for_display
 from src.gemma_console_gui.token_handler import (
     handle_token_limits,
+    limit_prompt_text,
     prompt_token_budget,
+    truncate_text_to_char_budget,
     truncate_text_to_token_budget,
 )
 
@@ -23,6 +25,10 @@ class TextProcessingTests(unittest.TestCase):
     def test_token_limit_truncates_overlong_turn(self) -> None:
         self.assertEqual(truncate_text_to_token_budget("one two three", 2), "one two")
         self.assertEqual(handle_token_limits(["one two three four"], 2), ["one two"])
+
+    def test_char_limit_truncates_text_without_spaces(self) -> None:
+        self.assertEqual(truncate_text_to_char_budget("abcdef", 3), "abc")
+        self.assertEqual(limit_prompt_text("abcdef", max_tokens=10, max_chars=3), "abc")
 
     def test_prompt_token_budget_reserves_response_space(self) -> None:
         self.assertEqual(prompt_token_budget(128, 32), 96)

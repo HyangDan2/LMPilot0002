@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
-from PySide6.QtGui import QTextCursor, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from .config import AppConfig
 from .console_session import ConsoleSessionError, LlamaConsoleSession
 from .database import ChatRepository
-from .token_handler import handle_token_limits, prompt_token_budget
+from .token_handler import limit_prompt_text, prompt_token_budget
 
 UNICODE_ESCAPE_RE = re.compile(r'\\u[0-9a-fA-F]{4}|/u[0-9a-fA-F]{4}')
 
@@ -68,7 +68,7 @@ class ChatWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            limited_user_text = handle_token_limits([self.user_text], self.max_prompt_tokens)[0]
+            limited_user_text = limit_prompt_text(self.user_text, self.max_prompt_tokens)
             answer = self.console.ask(limited_user_text)
             self.finished.emit(answer)
         except (ConsoleSessionError, Exception) as exc:
@@ -156,10 +156,16 @@ class MainWindow(QMainWindow):
         self.send_shortcut.activated.connect(self.on_send)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        try:
-            self.console.stop()
-        finally:
-            super().closeEvent(event)
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            self._worker_thread.quit()
+            self._worker_thread.wait(3000)
+            if self._worker_thread.isRunning():
+                self._set_status('Please wait for the current response to finish before closing.')
+                event.ignore()
+                return
+
+        self.console.stop()
+        super().closeEvent(event)
 
     def _init_console(self) -> None:
         try:
@@ -204,11 +210,16 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
 
         assert self.current_session_id is not None
+        max_prompt_tokens = prompt_token_budget(self.console.config.ctx_size)
+        limited_user_text = limit_prompt_text(user_text, max_prompt_tokens)
+        was_limited = limited_user_text != user_text
         self.input_edit.clear()
-        self._append_block('You', user_text)
-        self.repository.add_message(self.current_session_id, 'user', user_text)
+        self._append_block('You', limited_user_text)
+        if was_limited:
+            self._append_block('System', 'Your message was shortened to fit the configured context limit.')
+        self.repository.add_message(self.current_session_id, 'user', limited_user_text)
         self._set_busy(True, 'Generating response...')
-        self._start_worker(user_text)
+        self._start_worker(limited_user_text)
 
     def _start_worker(self, user_text: str) -> None:
         self._worker_thread = QThread()
@@ -328,6 +339,7 @@ class ChatGUI:
 
     def run(self) -> None:
         app = QApplication.instance() or QApplication([])
+        app.setFont(QFont("Arial"))
         window = MainWindow(self.console, self.repository, self.app_config)
         window.show()
         app.exec()
