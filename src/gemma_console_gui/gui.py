@@ -24,20 +24,23 @@ from PySide6.QtWidgets import (
 from .config import AppConfig
 from .console_session import ConsoleSessionError, LlamaConsoleSession
 from .database import ChatRepository
+from .token_handler import handle_token_limits, prompt_token_budget
 
-UNICODE_ESCAPE_RE = re.compile(r'(\\u[0-9a-fA-F]{4})+|(/u[0-9a-fA-F]{4})+')
+UNICODE_ESCAPE_RE = re.compile(r'\\u[0-9a-fA-F]{4}|/u[0-9a-fA-F]{4}')
 
 
 def normalize_text_for_display(text: str) -> str:
     if not isinstance(text, str):
         return str(text)
-    if UNICODE_ESCAPE_RE.search(text):
-        fixed = text.replace('/u', '\\u')
+
+    def replace_escape(match: re.Match[str]) -> str:
+        fixed = match.group(0).replace('/u', '\\u')
         try:
-            return fixed.encode('utf-8').decode('unicode_escape')
-        except Exception:
-            return text
-    return text
+            return chr(int(fixed[2:], 16))
+        except ValueError:
+            return match.group(0)
+
+    return UNICODE_ESCAPE_RE.sub(replace_escape, text)
 
 
 def strip_unsupported_chars(text: str) -> str:
@@ -60,11 +63,13 @@ class ChatWorker(QObject):
         super().__init__()
         self.console = console
         self.user_text = user_text
+        self.max_prompt_tokens = prompt_token_budget(console.config.ctx_size)
 
     @Slot()
     def run(self) -> None:
         try:
-            answer = self.console.ask(self.user_text)
+            limited_user_text = handle_token_limits([self.user_text], self.max_prompt_tokens)[0]
+            answer = self.console.ask(limited_user_text)
             self.finished.emit(answer)
         except (ConsoleSessionError, Exception) as exc:
             self.error.emit(str(exc))

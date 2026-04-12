@@ -59,6 +59,8 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+cp config.example.yaml config.yaml
+# edit config.yaml and set llama_cli_path and model_path
 python run.py --config config.yaml
 ```
 
@@ -78,10 +80,10 @@ python run.py --config config.yaml
   /path/to/your/gemma-3-1b-it-Q4_K_M.gguf
   ```
 
-👉 Modify paths in:
+👉 Create and modify paths in:
 
-```yaml
-config.yaml
+```bash
+cp config.example.yaml config.yaml
 ```
 
 ---
