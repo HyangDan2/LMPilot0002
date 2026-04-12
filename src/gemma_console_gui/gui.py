@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import traceback
+from typing import Protocol
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
@@ -22,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from .config import AppConfig
-from .console_session import ConsoleSessionError, LlamaConsoleSession
+from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
 from .token_handler import build_model_prompt, normalize_prompt_text, prompt_token_budget
 
@@ -49,11 +50,20 @@ def strip_unsupported_chars(text: str) -> str:
     return ''.join(ch for ch in text if ord(ch) <= 0xFFFF)
 
 
+class ChatSession(Protocol):
+    config: ConsoleConfig
+
+    def start(self) -> None: ...
+    def stop(self, force: bool = False) -> None: ...
+    def stop_generation(self) -> None: ...
+    def ask(self, prompt_text: str) -> str: ...
+
+
 class ChatWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, console: LlamaConsoleSession, prompt_text: str) -> None:
+    def __init__(self, console: ChatSession, prompt_text: str) -> None:
         super().__init__()
         self.console = console
         self.prompt_text = prompt_text
@@ -71,7 +81,7 @@ class ChatWorker(QObject):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, console: LlamaConsoleSession, repository: ChatRepository, app_config: AppConfig) -> None:
+    def __init__(self, console: ChatSession, repository: ChatRepository, app_config: AppConfig) -> None:
         super().__init__()
         self.console = console
         self.repository = repository
@@ -381,7 +391,7 @@ class MainWindow(QMainWindow):
         self._set_status('Session deleted')
 
 class ChatGUI:
-    def __init__(self, console: LlamaConsoleSession, repository: ChatRepository, app_config: AppConfig) -> None:
+    def __init__(self, console: ChatSession, repository: ChatRepository, app_config: AppConfig) -> None:
         self.console = console
         self.repository = repository
         self.app_config = app_config

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from .config import AppConfig, load_config
-from .console_session import ConsoleConfig, LlamaConsoleSession
+from .console_session import ConsoleConfig, LlamaConsoleSession, LlamaServerSession
 from .database import ChatRepository
 from .gui import ChatGUI
 
@@ -18,6 +18,10 @@ def main() -> int:
     console_config = ConsoleConfig(
         llama_cli_path=config.llama_cli_path,
         model_path=config.model_path,
+        backend=config.backend,
+        server_url=config.server_url,
+        server_endpoint=config.server_endpoint,
+        n_predict=config.n_predict,
         system_prompt=config.system_prompt,
         threads=config.threads,
         ctx_size=config.ctx_size,
@@ -26,7 +30,10 @@ def main() -> int:
         response_timeout=config.response_timeout,
     )
 
-    console = LlamaConsoleSession(console_config)
+    if config.backend == "cli":
+        console = LlamaConsoleSession(console_config)
+    else:
+        console = LlamaServerSession(console_config)
     repository = ChatRepository(config.db_path)
     app = ChatGUI(console=console, repository=repository, app_config=config)
     app.run()

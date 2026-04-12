@@ -1,6 +1,6 @@
 # Gemma Console GUI (PySide6 MVP)
 
-A lightweight OOP-based PySide6 desktop GUI for interacting with a persistent `llama-cli` session.
+A lightweight OOP-based PySide6 desktop GUI for interacting with a local `llama-server`.
 
 Designed for Raspberry Pi / Linux environments with stability-focused output handling.
 
@@ -9,7 +9,7 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 ## ✨ Features
 
 * 🖥️ PySide6 desktop GUI (clean chat interface)
-* 🔁 Persistent background `llama-cli` session (via `pexpect`, no subprocess per request)
+* 🔁 Local `llama-server` HTTP backend
 * 💾 SQLite-based local chat history
 * 🧹 ANSI / help banner / control sequence cleanup
 * 🔤 Unicode normalization (`/uXXXX`, `\\uXXXX`) support
@@ -60,7 +60,8 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp config.example.yaml config.yaml
-# edit config.yaml and set llama_cli_path and model_path
+# edit config.yaml and set server_url if needed
+llama-server -m /path/to/your/model.gguf --host 127.0.0.1 --port 8080
 python run.py --config config.yaml
 ```
 
@@ -68,10 +69,10 @@ python run.py --config config.yaml
 
 ## ⚙️ Default Paths
 
-* **llama-cli**
+* **llama-server URL**
 
   ```
-  /path/to/your/llama-cli
+  http://127.0.0.1:8080
   ```
 
 * **Model (GGUF)**
@@ -95,7 +96,7 @@ GUI (PySide6)
    │
    ├── QThread (ChatWorker)
    │       │
-   │       └── LlamaConsoleSession (pexpect)
+   │       └── LlamaServerSession (HTTP)
    │
    ├── SQLite (ChatRepository)
    │
@@ -110,7 +111,7 @@ GUI (PySide6)
 ## ⚠️ Notes (Raspberry Pi)
 
 * Emoji may break rendering → filtered by design
-* Ensure `llama-cli` runs independently before GUI
+* Ensure `llama-server` runs independently before GUI
 * If output looks corrupted:
 
   * Check locale (`UTF-8`)
@@ -127,13 +128,13 @@ GUI (PySide6)
 
 ---
 
-### 2. llama-cli error
+### 2. llama-server error
 
 ```bash
-ldd llama-cli
+curl http://127.0.0.1:8080/health
 ```
 
-→ missing `.so` needs to be resolved
+→ confirm the server is reachable
 
 ---
 
@@ -141,8 +142,7 @@ ldd llama-cli
 
 * Check:
 
-  * `pexpect` installed
-  * llama-cli works manually
+  * `llama-server` is running and reachable
 
 ---
 

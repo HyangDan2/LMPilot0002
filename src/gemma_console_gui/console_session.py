@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import http.client
+import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 import pexpect
 
@@ -37,12 +41,153 @@ class ConsoleSessionError(Exception):
 class ConsoleConfig:
     llama_cli_path: str
     model_path: str
+    backend: str = "server"
+    server_url: str = "http://127.0.0.1:8080"
+    server_endpoint: str = "/completion"
+    n_predict: int = 512
     system_prompt: Optional[str] = None
     threads: int = 4
     ctx_size: int = 2048
     extra_args: Optional[list[str]] = None
     startup_timeout: float = 180.0
     response_timeout: float = 180.0
+
+
+class LlamaServerSession:
+    def __init__(self, config: ConsoleConfig) -> None:
+        self.config = config
+        self._active_connection: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
+        self._lock = threading.Lock()
+        self._started = False
+        self._stop_requested = False
+
+    def start(self) -> None:
+        self._validate_server_url()
+        self._started = True
+
+    def is_alive(self) -> bool:
+        return self._started
+
+    def ask(self, user_text: str) -> str:
+        if not user_text.strip():
+            raise ConsoleSessionError("Empty prompt is not allowed.")
+
+        if not self.is_alive():
+            self.start()
+
+        payload = {
+            "prompt": user_text,
+            "n_predict": self.config.n_predict,
+            "stream": False,
+        }
+        if self.config.extra_args:
+            payload.update(self._extra_args_as_payload())
+
+        body = json.dumps(payload).encode("utf-8")
+        conn = self._create_connection()
+
+        with self._lock:
+            self._stop_requested = False
+            self._active_connection = conn
+
+        try:
+            conn.request(
+                "POST",
+                self.config.server_endpoint,
+                body=body,
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            response_body = response.read().decode("utf-8", errors="replace")
+            if response.status >= 400:
+                raise ConsoleSessionError(
+                    f"llama-server returned HTTP {response.status}: {response_body}"
+                )
+            answer = self._extract_server_answer(response_body)
+        except (OSError, http.client.HTTPException) as exc:
+            if self._stop_requested:
+                raise ConsoleSessionError("Generation stopped.") from exc
+            raise ConsoleSessionError(f"llama-server request failed: {exc}") from exc
+        finally:
+            with self._lock:
+                if self._active_connection is conn:
+                    self._active_connection = None
+            conn.close()
+
+        if not answer.strip():
+            raise ConsoleSessionError("Model returned an empty response.")
+        return answer
+
+    def stop(self, force: bool = False) -> None:
+        self.stop_generation()
+        self._started = False
+
+    def stop_generation(self) -> None:
+        with self._lock:
+            self._stop_requested = True
+            conn = self._active_connection
+        if conn is not None:
+            conn.close()
+
+    def _validate_server_url(self) -> None:
+        parsed = urlparse(self.config.server_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ConsoleSessionError(f"Invalid llama-server URL: {self.config.server_url}")
+
+    def _create_connection(self) -> http.client.HTTPConnection | http.client.HTTPSConnection:
+        parsed = urlparse(self.config.server_url)
+        port = parsed.port
+        timeout = self.config.response_timeout
+        if parsed.scheme == "https":
+            return http.client.HTTPSConnection(parsed.hostname, port=port, timeout=timeout)
+        return http.client.HTTPConnection(parsed.hostname, port=port, timeout=timeout)
+
+    def _extra_args_as_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {}
+        for item in self.config.extra_args or []:
+            if "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            payload[key.strip()] = self._parse_payload_value(value.strip())
+        return payload
+
+    @staticmethod
+    def _parse_payload_value(value: str) -> object:
+        if value.lower() in {"true", "false"}:
+            return value.lower() == "true"
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            return float(value)
+        except ValueError:
+            return value
+
+    @staticmethod
+    def _extract_server_answer(response_body: str) -> str:
+        try:
+            data = json.loads(response_body)
+        except json.JSONDecodeError as exc:
+            raise ConsoleSessionError(f"Invalid llama-server JSON response: {response_body}") from exc
+
+        if isinstance(data, dict):
+            if isinstance(data.get("content"), str):
+                return data["content"].strip()
+            if isinstance(data.get("completion"), str):
+                return data["completion"].strip()
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                choice = choices[0]
+                if isinstance(choice, dict):
+                    text = choice.get("text")
+                    if isinstance(text, str):
+                        return text.strip()
+                    message = choice.get("message")
+                    if isinstance(message, dict) and isinstance(message.get("content"), str):
+                        return message["content"].strip()
+
+        raise ConsoleSessionError(f"Unsupported llama-server response: {response_body}")
 
 
 class LlamaConsoleSession:
