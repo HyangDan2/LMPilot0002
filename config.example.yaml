@@ -1,6 +1,6 @@
 backend: "server"
 server_url: "http://127.0.0.1:8080"
-server_endpoint: "/completion"
+server_endpoint: "auto"
 llama_cli_path: "/users/jaehyukshim/Documents/llm/llama.cpp/llama-cli"
 model_path: "/users/jaehyukshim/llmdev/gemma3-4b-Q4_K_M.gguf"
 system_prompt: "You are a helpful assistant."

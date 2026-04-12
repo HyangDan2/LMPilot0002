@@ -12,12 +12,13 @@ from src.gemma_console_gui.config import AppConfig
 from src.gemma_console_gui.console_session import ConsoleConfig, ConsoleSessionError
 from src.gemma_console_gui.database import ChatRepository
 from src.gemma_console_gui.gui import MainWindow
+from src.gemma_console_gui.token_handler import ModelPrompt
 
 
 class FakeConsole:
     def __init__(self) -> None:
         self.config = ConsoleConfig("/bin/echo", "/tmp/model.gguf", ctx_size=2048)
-        self.prompts: list[str] = []
+        self.prompts: list[str | ModelPrompt] = []
         self.stopped = False
 
     def start(self) -> None:
@@ -29,7 +30,7 @@ class FakeConsole:
     def stop_generation(self) -> None:
         self.stopped = True
 
-    def ask(self, prompt: str) -> str:
+    def ask(self, prompt: str | ModelPrompt) -> str:
         self.prompts.append(prompt)
         for _ in range(20):
             if self.stopped:
@@ -72,9 +73,12 @@ class GuiFlowTests(unittest.TestCase):
         process_events(self.app)
 
         self.assertIn("assistant answer", window.chat_view.toPlainText())
-        self.assertIn("[You]\nfirst", console.prompts[-1])
-        self.assertIn("[You]\nsecond", console.prompts[-1])
-        self.assertTrue(console.prompts[-1].endswith("[Gemma]"))
+        prompt = console.prompts[-1]
+        self.assertIsInstance(prompt, ModelPrompt)
+        assert isinstance(prompt, ModelPrompt)
+        self.assertEqual(prompt.messages[-1], {"role": "user", "content": "second"})
+        self.assertIn("<start_of_turn>user\nsecond<end_of_turn>", prompt.completion_prompt)
+        self.assertTrue(prompt.completion_prompt.endswith("<start_of_turn>model"))
 
         window.close()
         process_events(self.app, 5)

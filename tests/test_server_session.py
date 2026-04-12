@@ -2,17 +2,21 @@ import json
 import unittest
 
 from src.gemma_console_gui.console_session import ConsoleConfig, LlamaServerSession
+from src.gemma_console_gui.token_handler import build_model_prompt_request
 
 
 class FakeResponse:
-    status = 200
+    def __init__(self, status: int, body: dict) -> None:
+        self.status = status
+        self.body = body
 
     def read(self) -> bytes:
-        return json.dumps({"content": "server answer"}).encode("utf-8")
+        return json.dumps(self.body).encode("utf-8")
 
 
 class FakeConnection:
     requests: list[dict] = []
+    responses: list[FakeResponse] = []
 
     def __init__(self) -> None:
         self.closed = False
@@ -28,35 +32,112 @@ class FakeConnection:
         )
 
     def getresponse(self) -> FakeResponse:
-        return FakeResponse()
+        return self.responses.pop(0)
 
     def close(self) -> None:
         self.closed = True
 
 
 class ServerSessionTests(unittest.TestCase):
-    def test_server_session_posts_completion_payload(self) -> None:
+    def setUp(self) -> None:
         FakeConnection.requests.clear()
-        session = LlamaServerSession(
+        FakeConnection.responses.clear()
+
+    def make_session(self, config: ConsoleConfig) -> LlamaServerSession:
+        session = LlamaServerSession(config)
+        session._create_connection = FakeConnection  # type: ignore[method-assign]
+        return session
+
+    def test_server_session_prefers_chat_completions_payload(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(200, {"choices": [{"message": {"content": "server answer"}}]})
+        )
+        session = self.make_session(
             ConsoleConfig(
                 llama_cli_path="/unused",
                 model_path="/unused",
                 server_url="http://127.0.0.1:8080",
                 n_predict=64,
-                extra_args=["temperature=0.2", "cache_prompt=true"],
+                system_prompt="Be concise.",
+                extra_args=["temperature=0.2"],
             )
         )
-        session._create_connection = FakeConnection  # type: ignore[method-assign]
+        prompt = build_model_prompt_request([], "hello", 100, system_prompt="Be concise.")
 
-        answer = session.ask("[You]\nhello\n\n[Gemma]")
+        answer = session.ask(prompt)
 
         self.assertEqual(answer, "server answer")
-        self.assertEqual(FakeConnection.requests[0]["method"], "POST")
+        request = FakeConnection.requests[0]
+        self.assertEqual(request["method"], "POST")
+        self.assertEqual(request["endpoint"], "/v1/chat/completions")
+        self.assertEqual(request["body"]["messages"][0], {"role": "system", "content": "Be concise."})
+        self.assertEqual(request["body"]["messages"][-1], {"role": "user", "content": "hello"})
+        self.assertEqual(request["body"]["max_tokens"], 64)
+        self.assertEqual(request["body"]["temperature"], 0.2)
+        self.assertIn("<end_of_turn>", request["body"]["stop"])
+
+    def test_server_session_falls_back_to_completion_with_gemma_template(self) -> None:
+        FakeConnection.responses.extend(
+            [
+                FakeResponse(404, {"error": "not found"}),
+                FakeResponse(200, {"content": "fallback answer"}),
+            ]
+        )
+        session = self.make_session(
+            ConsoleConfig(
+                llama_cli_path="/unused",
+                model_path="/unused",
+                server_url="http://127.0.0.1:8080",
+                n_predict=64,
+            )
+        )
+        prompt = build_model_prompt_request([], "hello", 100)
+
+        answer = session.ask(prompt)
+
+        self.assertEqual(answer, "fallback answer")
+        self.assertEqual(FakeConnection.requests[0]["endpoint"], "/v1/chat/completions")
+        self.assertEqual(FakeConnection.requests[1]["endpoint"], "/completion")
+        completion_body = FakeConnection.requests[1]["body"]
+        self.assertIn("<start_of_turn>user\nhello<end_of_turn>", completion_body["prompt"])
+        self.assertTrue(completion_body["prompt"].endswith("<start_of_turn>model"))
+        self.assertIn("\n[You]", completion_body["stop"])
+
+    def test_server_session_completion_endpoint_uses_gemma_template_directly(self) -> None:
+        FakeConnection.responses.append(FakeResponse(200, {"content": "completion answer"}))
+        session = self.make_session(
+            ConsoleConfig(
+                llama_cli_path="/unused",
+                model_path="/unused",
+                server_url="http://127.0.0.1:8080",
+                server_endpoint="/completion",
+            )
+        )
+        prompt = build_model_prompt_request([], "hello", 100)
+
+        answer = session.ask(prompt)
+
+        self.assertEqual(answer, "completion answer")
+        self.assertEqual(len(FakeConnection.requests), 1)
         self.assertEqual(FakeConnection.requests[0]["endpoint"], "/completion")
-        self.assertEqual(FakeConnection.requests[0]["body"]["prompt"], "[You]\nhello\n\n[Gemma]")
-        self.assertEqual(FakeConnection.requests[0]["body"]["n_predict"], 64)
-        self.assertEqual(FakeConnection.requests[0]["body"]["temperature"], 0.2)
-        self.assertTrue(FakeConnection.requests[0]["body"]["cache_prompt"])
+        self.assertIn("<start_of_turn>user\nhello<end_of_turn>", FakeConnection.requests[0]["body"]["prompt"])
+
+    def test_server_session_cleans_runaway_dialogue_continuation(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(200, {"choices": [{"message": {"content": "Hey you!\n\n[You]\nWTF\n\n[Gemma]\nWhat?"}}]})
+        )
+        session = self.make_session(
+            ConsoleConfig(
+                llama_cli_path="/unused",
+                model_path="/unused",
+                server_url="http://127.0.0.1:8080",
+            )
+        )
+        prompt = build_model_prompt_request([], "Hey!", 100)
+
+        answer = session.ask(prompt)
+
+        self.assertEqual(answer, "Hey you!")
 
 
 if __name__ == "__main__":

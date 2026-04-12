@@ -13,7 +13,7 @@ class AppConfig:
     model_path: str
     backend: str = "server"
     server_url: str = "http://127.0.0.1:8080"
-    server_endpoint: str = "/completion"
+    server_endpoint: str = "auto"
     n_predict: int = 512
     system_prompt: str = "You are a helpful assistant."
     threads: int = 4
@@ -48,7 +48,7 @@ def load_config(path: str) -> AppConfig:
         ),
         backend=raw.get("backend", "server"),
         server_url=raw.get("server_url", "http://127.0.0.1:8080"),
-        server_endpoint=raw.get("server_endpoint", "/completion"),
+        server_endpoint=raw.get("server_endpoint", "auto"),
         n_predict=int(raw.get("n_predict", 512)),
         system_prompt=raw.get("system_prompt", "You are a helpful assistant."),
         threads=int(raw.get("threads", 4)),

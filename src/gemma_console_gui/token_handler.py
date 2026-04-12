@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 
 DEFAULT_RESPONSE_TOKEN_RESERVE = 256
 DEFAULT_MAX_PROMPT_CHARS = 12000
 OBJECT_REPLACEMENT_CHAR = "\ufffc"
-TURN_SEPARATOR = "\n\n"
-ASSISTANT_PROMPT_CUE = "[Gemma]"
+GEMMA_ASSISTANT_CUE = "<start_of_turn>model"
+GEMMA_END_OF_TURN = "<end_of_turn>"
 
-ROLE_LABELS = {
-    "user": "You",
-    "assistant": "Gemma",
-    "system": "System",
-}
+
+@dataclass(frozen=True)
+class ModelPrompt:
+    messages: list[dict[str, str]]
+    completion_prompt: str
+    was_limited: bool = False
 
 
 def estimate_token_count(text: str) -> int:
@@ -107,51 +109,142 @@ def handle_token_limits(conversation: list[str], max_tokens: int) -> list[str]:
     return [turn for turn in selected if turn]
 
 
-def _join_turns(turns: list[str]) -> str:
-    return TURN_SEPARATOR.join(turns)
+def _canonical_role(role: str) -> str:
+    normalized = role.strip().lower()
+    if normalized in {"assistant", "model", "gemma"}:
+        return "assistant"
+    if normalized == "system":
+        return "system"
+    return "user"
 
 
 def _text_fits_budget(text: str, max_tokens: int, max_chars: int) -> bool:
     return estimate_token_count(text) <= max_tokens and len(text) <= max_chars
 
 
-def trim_turns_to_budget(
-    turns: list[str],
+def format_chat_message(role: str, content: str) -> dict[str, str] | None:
+    normalized_content = normalize_prompt_text(content)
+    if not normalized_content:
+        return None
+    return {"role": _canonical_role(role), "content": normalized_content}
+
+
+def _completion_turn_for_message(message: dict[str, str]) -> str:
+    role = message["role"]
+    content = message["content"]
+    if role == "system":
+        return f"System instruction:\n{content}"
+    if role == "assistant":
+        gemma_role = "model"
+    else:
+        gemma_role = "user"
+    return f"<start_of_turn>{gemma_role}\n{content}{GEMMA_END_OF_TURN}"
+
+
+def format_gemma_completion_prompt(messages: list[dict[str, str]]) -> str:
+    turns = [_completion_turn_for_message(message) for message in messages if message.get("content")]
+    turns.append(GEMMA_ASSISTANT_CUE)
+    return "\n".join(turns)
+
+
+def _messages_fit_budget(messages: list[dict[str, str]], max_tokens: int, max_chars: int) -> bool:
+    return _text_fits_budget(format_gemma_completion_prompt(messages), max_tokens, max_chars)
+
+
+def _truncate_message_to_budget(
+    message: dict[str, str],
+    fixed_messages: list[dict[str, str]],
+    max_tokens: int,
+    max_chars: int,
+) -> dict[str, str] | None:
+    empty_message = {"role": message["role"], "content": ""}
+    base_turns = [
+        _completion_turn_for_message(fixed_message)
+        for fixed_message in fixed_messages
+        if fixed_message.get("content")
+    ]
+    base_turns.extend([_completion_turn_for_message(empty_message), GEMMA_ASSISTANT_CUE])
+    base_prompt = "\n".join(base_turns)
+    remaining_chars = max_chars - len(base_prompt)
+    remaining_tokens = max_tokens - estimate_token_count(base_prompt)
+    if remaining_chars <= 0 or remaining_tokens <= 0:
+        return None
+
+    content = truncate_text_to_char_budget(message["content"], remaining_chars)
+    content = truncate_text_to_token_budget(content, remaining_tokens)
+    if not content:
+        return None
+    return {"role": message["role"], "content": content}
+
+
+def trim_messages_to_budget(
+    messages: list[dict[str, str]],
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
-) -> list[str]:
-    """Keep the newest turns that fit the prompt budget."""
+) -> list[dict[str, str]]:
+    """Keep the newest chat messages that fit the Gemma completion fallback budget."""
     if max_tokens <= 0 or max_chars <= 0:
         return []
 
-    selected_newest_first: list[str] = []
+    fixed_messages = [message for message in messages if message["role"] == "system"]
+    conversation_messages = [message for message in messages if message["role"] != "system"]
+    selected: list[dict[str, str]] = []
 
-    for turn in reversed([turn for turn in turns if turn]):
-        candidate_newest_first = selected_newest_first + [turn]
-        candidate = _join_turns(list(reversed(candidate_newest_first)))
-
-        if _text_fits_budget(candidate, max_tokens, max_chars):
-            selected_newest_first = candidate_newest_first
+    for message in reversed(conversation_messages):
+        candidate = fixed_messages + [message] + selected
+        if _messages_fit_budget(candidate, max_tokens, max_chars):
+            selected.insert(0, message)
             continue
 
-        if selected_newest_first:
+        if selected:
             break
 
-        truncated = truncate_text_to_char_budget(turn, max_chars)
-        truncated = truncate_text_to_token_budget(truncated, max_tokens)
-        if truncated:
-            selected_newest_first = [truncated]
+        truncated = _truncate_message_to_budget(message, fixed_messages, max_tokens, max_chars)
+        if truncated is not None:
+            selected.insert(0, truncated)
         break
 
-    return list(reversed(selected_newest_first))
+    if fixed_messages and conversation_messages and not selected:
+        return trim_messages_to_budget(conversation_messages, max_tokens, max_chars)
+
+    result = fixed_messages + selected
+    if fixed_messages and not _messages_fit_budget(result, max_tokens, max_chars):
+        return selected
+    return result
 
 
-def format_prompt_turn(role: str, content: str) -> str:
-    label = ROLE_LABELS.get(role, role.title())
-    normalized_content = normalize_prompt_text(content)
-    if not normalized_content:
-        return ""
-    return f"[{label}]\n{normalized_content}"
+def build_model_prompt_request(
+    messages: list[dict[str, Any]],
+    current_user_text: str,
+    max_tokens: int,
+    max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+    system_prompt: str | None = None,
+) -> ModelPrompt:
+    """Build structured chat messages and a Gemma-template completion fallback."""
+    chat_messages: list[dict[str, str]] = []
+
+    system_message = format_chat_message("system", system_prompt or "")
+    if system_message is not None:
+        chat_messages.append(system_message)
+
+    for message in messages:
+        formatted_message = format_chat_message(
+            str(message.get("role", "")),
+            str(message.get("content", "")),
+        )
+        if formatted_message is not None:
+            chat_messages.append(formatted_message)
+
+    current_message = format_chat_message("user", current_user_text)
+    if current_message is not None:
+        chat_messages.append(current_message)
+
+    trimmed_messages = trim_messages_to_budget(chat_messages, max_tokens, max_chars)
+    return ModelPrompt(
+        messages=trimmed_messages,
+        completion_prompt=format_gemma_completion_prompt(trimmed_messages),
+        was_limited=trimmed_messages != chat_messages,
+    )
 
 
 def build_model_prompt(
@@ -159,32 +252,16 @@ def build_model_prompt(
     current_user_text: str,
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+    system_prompt: str | None = None,
 ) -> str:
     """Build the final history-aware prompt sent to the model."""
-    turns: list[str] = []
-
-    for message in messages:
-        role = str(message.get("role", ""))
-        content = str(message.get("content", ""))
-        formatted_turn = format_prompt_turn(role, content)
-        if formatted_turn:
-            turns.append(formatted_turn)
-
-    current_turn = format_prompt_turn("user", current_user_text)
-    if current_turn:
-        turns.append(current_turn)
-
-    cue_token_cost = estimate_token_count(ASSISTANT_PROMPT_CUE)
-    cue_char_cost = len(TURN_SEPARATOR) + len(ASSISTANT_PROMPT_CUE)
-    trimmed_turns = trim_turns_to_budget(
-        turns,
-        max_tokens=max_tokens - cue_token_cost,
-        max_chars=max_chars - cue_char_cost,
-    )
-    if not trimmed_turns:
-        return ASSISTANT_PROMPT_CUE
-
-    return _join_turns(trimmed_turns + [ASSISTANT_PROMPT_CUE])
+    return build_model_prompt_request(
+        messages,
+        current_user_text,
+        max_tokens,
+        max_chars,
+        system_prompt,
+    ).completion_prompt
 
 
 def prompt_token_budget(ctx_size: int, reserve: int = DEFAULT_RESPONSE_TOKEN_RESERVE) -> int:

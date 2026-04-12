@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from .config import AppConfig
 from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
-from .token_handler import build_model_prompt, normalize_prompt_text, prompt_token_budget
+from .token_handler import ModelPrompt, build_model_prompt_request, normalize_prompt_text, prompt_token_budget
 
 UNICODE_ESCAPE_RE = re.compile(r'\\u[0-9a-fA-F]{4}|/u[0-9a-fA-F]{4}')
 
@@ -56,14 +56,14 @@ class ChatSession(Protocol):
     def start(self) -> None: ...
     def stop(self, force: bool = False) -> None: ...
     def stop_generation(self) -> None: ...
-    def ask(self, prompt_text: str) -> str: ...
+    def ask(self, prompt_text: str | ModelPrompt) -> str: ...
 
 
 class ChatWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, console: ChatSession, prompt_text: str) -> None:
+    def __init__(self, console: ChatSession, prompt_text: str | ModelPrompt) -> None:
         super().__init__()
         self.console = console
         self.prompt_text = prompt_text
@@ -236,19 +236,14 @@ class MainWindow(QMainWindow):
             self.console.config.ctx_size,
             self.app_config.response_token_reserve,
         )
-        model_prompt = build_model_prompt(
+        model_prompt = build_model_prompt_request(
             prior_messages,
             display_user_text,
             max_prompt_tokens,
             self.app_config.max_prompt_chars,
+            self.app_config.system_prompt,
         )
-        unlimited_model_prompt = build_model_prompt(
-            prior_messages,
-            display_user_text,
-            1_000_000,
-            10_000_000,
-        )
-        was_limited = display_user_text != user_text or model_prompt != unlimited_model_prompt
+        was_limited = display_user_text != user_text or model_prompt.was_limited
         self.input_edit.clear()
         self._append_block('You', display_user_text)
         if was_limited:
@@ -268,7 +263,7 @@ class MainWindow(QMainWindow):
         self._set_status('Stopping response...')
         self.console.stop_generation()
 
-    def _start_worker(self, prompt_text: str) -> None:
+    def _start_worker(self, prompt_text: str | ModelPrompt) -> None:
         self._worker_thread = QThread()
         self._worker = ChatWorker(self.console, prompt_text)
         self._worker.moveToThread(self._worker_thread)

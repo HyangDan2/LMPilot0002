@@ -9,7 +9,7 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 ## ✨ Features
 
 * 🖥️ PySide6 desktop GUI (clean chat interface)
-* 🔁 Local `llama-server` HTTP backend
+* 🔁 Local `llama-server` HTTP backend (`/v1/chat/completions` first, Gemma-template fallback)
 * 💾 SQLite-based local chat history
 * 🧹 ANSI / help banner / control sequence cleanup
 * 🔤 Unicode normalization (`/uXXXX`, `\\uXXXX`) support
@@ -61,6 +61,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 cp config.example.yaml config.yaml
 # edit config.yaml and set server_url if needed
+# keep server_endpoint: "auto" unless you need to force a specific endpoint
 llama-server -m /path/to/your/model.gguf --host 127.0.0.1 --port 8080
 python run.py --config config.yaml
 ```
@@ -74,6 +75,15 @@ python run.py --config config.yaml
   ```
   http://127.0.0.1:8080
   ```
+
+* **llama-server endpoint**
+
+  ```
+  auto
+  ```
+
+  The app tries `/v1/chat/completions` first, then falls back to `/completion`
+  with Gemma turn markers and stop sequences.
 
 * **Model (GGUF)**
 

@@ -3,6 +3,7 @@ import unittest
 from src.gemma_console_gui.gui import normalize_text_for_display
 from src.gemma_console_gui.token_handler import (
     build_model_prompt,
+    build_model_prompt_request,
     handle_token_limits,
     normalize_prompt_text,
     prompt_token_budget,
@@ -29,8 +30,16 @@ class TextProcessingTests(unittest.TestCase):
 
     def test_char_limit_truncates_text_without_spaces(self) -> None:
         self.assertEqual(truncate_text_to_char_budget("abcdef", 3), "abc")
-        self.assertEqual(build_model_prompt([], "abcdef", max_tokens=10, max_chars=18), "[You]\nabc\n\n[Gemma]")
-        self.assertEqual(build_model_prompt([], "abcdef", max_tokens=10, max_chars=25), "[You]\nabcdef\n\n[Gemma]")
+        limited_prompt = build_model_prompt_request([], "abcdef", max_tokens=10, max_chars=57)
+        self.assertEqual(
+            limited_prompt.completion_prompt,
+            "<start_of_turn>user\nabc<end_of_turn>\n<start_of_turn>model",
+        )
+        self.assertTrue(limited_prompt.was_limited)
+        self.assertEqual(
+            build_model_prompt([], "abcdef", max_tokens=10, max_chars=60),
+            "<start_of_turn>user\nabcdef<end_of_turn>\n<start_of_turn>model",
+        )
 
     def test_prompt_normalization_preserves_multiline_paste(self) -> None:
         text = "Summarize this\n\n첫 문장입니다.\n￼\n둘째 문장입니다."
@@ -49,9 +58,30 @@ class TextProcessingTests(unittest.TestCase):
             {"role": "assistant", "content": "It prints hi."},
         ]
         prompt = build_model_prompt(messages, "Explain the previous code again.", 100)
-        self.assertIn("[You]\nHere is some code:\n    print('hi')", prompt)
-        self.assertIn("[Gemma]\nIt prints hi.", prompt)
-        self.assertTrue(prompt.endswith("[You]\nExplain the previous code again.\n\n[Gemma]"))
+        self.assertIn("<start_of_turn>user\nHere is some code:\n    print('hi')<end_of_turn>", prompt)
+        self.assertIn("<start_of_turn>model\nIt prints hi.<end_of_turn>", prompt)
+        self.assertTrue(
+            prompt.endswith(
+                "<start_of_turn>user\nExplain the previous code again.<end_of_turn>\n<start_of_turn>model"
+            )
+        )
+
+    def test_build_model_prompt_request_includes_structured_chat_messages(self) -> None:
+        prompt = build_model_prompt_request(
+            [{"role": "assistant", "content": "Prior answer."}],
+            "Follow up.",
+            max_tokens=100,
+            system_prompt="Be concise.",
+        )
+        self.assertEqual(
+            prompt.messages,
+            [
+                {"role": "system", "content": "Be concise."},
+                {"role": "assistant", "content": "Prior answer."},
+                {"role": "user", "content": "Follow up."},
+            ],
+        )
+        self.assertIn("<start_of_turn>model\nPrior answer.<end_of_turn>", prompt.completion_prompt)
 
     def test_build_model_prompt_trims_oldest_turns_first(self) -> None:
         messages = [
@@ -65,7 +95,7 @@ class TextProcessingTests(unittest.TestCase):
         self.assertNotIn("old assistant context", prompt)
         self.assertIn("newer assistant", prompt)
         self.assertIn("current question", prompt)
-        self.assertTrue(prompt.endswith("[Gemma]"))
+        self.assertTrue(prompt.endswith("<start_of_turn>model"))
 
     def test_prompt_token_budget_reserves_response_space(self) -> None:
         self.assertEqual(prompt_token_budget(128, 32), 96)
