@@ -81,6 +81,35 @@ class OpenAICompatibleClientTests(unittest.TestCase):
         self.assertEqual(client.list_models(), ["model-a", "model-b"])
         self.assertEqual(FakeConnection.requests[0]["path"], "/v1/models")
 
+    def test_embeddings_posts_openai_compatible_payload(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(
+                200,
+                {
+                    "data": [
+                        {"index": 1, "embedding": [0.0, 1.0]},
+                        {"index": 0, "embedding": [1.0, 0.0]},
+                    ]
+                },
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(
+                base_url="http://localhost:1234/v1",
+                model="chat-model",
+                embedding_model="embedding-model",
+            )
+        )
+
+        vectors = client.embeddings(["first", "second"])
+
+        self.assertEqual(vectors, [[1.0, 0.0], [0.0, 1.0]])
+        request = FakeConnection.requests[0]
+        self.assertEqual(request["method"], "POST")
+        self.assertEqual(request["path"], "/v1/embeddings")
+        self.assertEqual(request["body"]["model"], "embedding-model")
+        self.assertEqual(request["body"]["input"], ["first", "second"])
+
     def test_http_error_is_readable_without_credentials(self) -> None:
         FakeConnection.responses.append(FakeResponse(401, {"error": "bad key"}))
         client = self.make_client(

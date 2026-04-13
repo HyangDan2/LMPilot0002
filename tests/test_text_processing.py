@@ -3,6 +3,7 @@ import unittest
 from src.gemma_console_gui.gui import normalize_text_for_display
 from src.gemma_console_gui.token_handler import (
     build_model_prompt,
+    build_memory_context,
     build_model_prompt_request,
     handle_token_limits,
     normalize_prompt_text,
@@ -82,6 +83,24 @@ class TextProcessingTests(unittest.TestCase):
             ],
         )
         self.assertIn("<start_of_turn>model\nPrior answer.<end_of_turn>", prompt.completion_prompt)
+
+    def test_build_model_prompt_request_includes_memory_context(self) -> None:
+        prompt = build_model_prompt_request(
+            [{"role": "assistant", "content": "Prior answer."}],
+            "Follow up.",
+            max_tokens=100,
+            system_prompt="Be concise.",
+            memory_context=build_memory_context(
+                summary="The user prefers local vector memory.",
+                retrieved_context="[1] design note\nUse top-k chunks.",
+            ),
+        )
+
+        self.assertEqual(prompt.messages[0], {"role": "system", "content": "Be concise."})
+        self.assertEqual(prompt.messages[1]["role"], "system")
+        self.assertIn("Conversation summary:", prompt.messages[1]["content"])
+        self.assertIn("Relevant retrieved context:", prompt.messages[1]["content"])
+        self.assertEqual(prompt.messages[-1], {"role": "user", "content": "Follow up."})
 
     def test_build_model_prompt_trims_oldest_turns_first(self) -> None:
         messages = [

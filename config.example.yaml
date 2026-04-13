@@ -2,6 +2,7 @@ backend: "openai"
 openai_base_url: ""
 openai_api_key: ""
 openai_model: ""
+openai_embedding_model: ""
 connection_settings_path: "openai_settings.json"
 system_prompt: "You are a helpful assistant."
 temperature: 0.7
@@ -17,6 +18,10 @@ window_width: 1000
 window_height: 720
 response_token_reserve: 256
 max_prompt_chars: 12000
+recent_message_limit: 40
+rag_top_k: 5
+rag_min_score: 0.2
+memory_context_char_limit: 4000
 
 # Legacy llama-cli backend settings are only used when backend: "cli".
 llama_cli_path: "/path/to/your/llama-cli"

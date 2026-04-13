@@ -39,7 +39,8 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
   ```
 * 🧩 Prompt handling is history-aware:
 
-  * Stored session messages are included in the model request.
+  * Recent session messages are included in the model request.
+  * Older context can be carried through a stored session summary.
   * Long context is trimmed from oldest turns first.
   * Multiline pasted text, code, logs, JSON, and YAML are preserved as much as practical.
 * 🛑 Stop behavior:
@@ -119,9 +120,22 @@ python run.py --config config.yaml
   n_predict: 512
   response_token_reserve: 256
   max_prompt_chars: 12000
+  recent_message_limit: 40
+  memory_context_char_limit: 4000
   ```
 
   If answers are too short, increase `n_predict`. If long pasted prompts are being trimmed too aggressively, increase `ctx_size` and `max_prompt_chars` in line with your model/server capacity.
+
+* **Conversation memory**
+
+  ```yaml
+  recent_message_limit: 40
+  rag_top_k: 5
+  rag_min_score: 0.2
+  openai_embedding_model: ""
+  ```
+
+  The prompt builder uses a recent-message window instead of reprocessing the entire session on every send. The database also has a session summary table and a vector chunk store so future RAG flows can combine a rolling summary, retrieved memory, recent messages, and the current user prompt.
 
 Create and modify local settings in:
 
@@ -143,6 +157,12 @@ GUI (PySide6)
    │              └── /completion (Gemma-template fallback)
    │
    ├── SQLite (ChatRepository)
+   │      ├── recent message window
+   │      └── session summary memory
+   │
+   ├── RAG Store
+   │      ├── OpenAI-compatible /v1/embeddings
+   │      └── cosine similarity search
    │
    └── Text Processing
           ├── ANSI strip
@@ -265,7 +285,19 @@ The app now uses an OpenAI-compatible Chat Completions backend by default. Start
 * **Base URL**: your OpenAI-compatible `/v1` base URL, for example `http://127.0.0.1:8000/v1` or `http://localhost:1234/v1`
 * **API Key**: optional for local servers; masked in the GUI and saved only in the local ignored settings file
 * **Model Name**: the exact model ID exposed by your backend
+* **Embedding Model**: optional model ID for `/v1/embeddings`; if blank, code can fall back to the chat model for embedding calls
 
 Use **Save Settings** to persist those values to `openai_settings.json`. That file is ignored by git because it may contain secrets. Use **Test Connection** to check `/models` first; if model listing is unavailable, the app falls back to a minimal chat completion test when a model name is set.
 
 The checked-in `config.example.yaml` contains non-secret defaults. Runtime connection values should be entered in the GUI or kept in your local, ignored `openai_settings.json`.
+
+## Memory and RAG Foundation
+
+Long chats no longer require every saved turn to be normalized and trimmed on each send. The GUI reads only `recent_message_limit` prior messages for the live prompt and can include a stored session summary as a compact memory block.
+
+The RAG foundation is available for the next UI step:
+
+* `OpenAICompatibleClient.embeddings(...)` calls `/v1/embeddings`
+* `RagStore` saves chunk text, source metadata, and embedding vectors in SQLite
+* cosine similarity search returns the top-k relevant chunks
+* retrieved chunks can be formatted and passed into the prompt as memory context

@@ -17,6 +17,7 @@ class OpenAIConnectionSettings:
     base_url: str = ""
     api_key: str = ""
     model: str = ""
+    embedding_model: str = ""
     temperature: float = 0.7
     max_tokens: int = 512
     timeout: float = 180.0
@@ -40,6 +41,21 @@ class OpenAICompatibleClient:
         }
         data = self._request_json("POST", "/chat/completions", payload)
         return self._extract_chat_text(data)
+
+    def embeddings(self, inputs: list[str], model: str | None = None) -> list[list[float]]:
+        self._validate_base_url()
+        embedding_model = (model or self.settings.embedding_model or self.settings.model).strip()
+        if not embedding_model:
+            raise LLMClientError("Embedding Model is required before building vector memory.")
+        if not inputs:
+            return []
+
+        payload: dict[str, Any] = {
+            "model": embedding_model,
+            "input": inputs,
+        }
+        data = self._request_json("POST", "/embeddings", payload)
+        return self._extract_embeddings(data)
 
     def list_models(self) -> list[str]:
         self._validate_base_url()
@@ -168,6 +184,27 @@ class OpenAICompatibleClient:
         if isinstance(text, str):
             return text.strip()
         raise LLMClientError("Malformed chat response: missing assistant content.")
+
+    @staticmethod
+    def _extract_embeddings(data: dict[str, Any]) -> list[list[float]]:
+        items = data.get("data")
+        if not isinstance(items, list):
+            raise LLMClientError("Malformed embeddings response: missing data list.")
+
+        vectors: list[list[float]] = []
+        for item in sorted(items, key=lambda value: value.get("index", 0) if isinstance(value, dict) else 0):
+            if not isinstance(item, dict):
+                raise LLMClientError("Malformed embeddings response: item is not an object.")
+            embedding = item.get("embedding")
+            if not isinstance(embedding, list) or not embedding:
+                raise LLMClientError("Malformed embeddings response: missing embedding vector.")
+            vector: list[float] = []
+            for value in embedding:
+                if not isinstance(value, int | float):
+                    raise LLMClientError("Malformed embeddings response: vector contains a non-number.")
+                vector.append(float(value))
+            vectors.append(vector)
+        return vectors
 
     @staticmethod
     def _safe_error_body(response_body: str) -> str:

@@ -45,6 +45,20 @@ class ChatRepository:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS session_summaries (
+                    session_id INTEGER PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    source_message_id INTEGER,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES sessions(id)
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_session_id_id ON messages(session_id, id)"
+            )
             conn.commit()
 
     def create_session(self, title: str = "New Chat") -> int:
@@ -79,9 +93,68 @@ class ChatRepository:
                 (session_id,),
             )
             return [dict(row) for row in cur.fetchall()]
-        
+
+    def get_recent_messages(self, session_id: int, limit: int) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                SELECT role, content, created_at
+                FROM (
+                    SELECT id, role, content, created_at
+                    FROM messages
+                    WHERE session_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                )
+                ORDER BY id
+                """,
+                (session_id, limit),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def count_messages(self, session_id: int) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT COUNT(*) AS message_count FROM messages WHERE session_id = ?",
+                (session_id,),
+            )
+            row = cur.fetchone()
+            return int(row["message_count"]) if row is not None else 0
+
+    def get_session_summary(self, session_id: int) -> str:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT content FROM session_summaries WHERE session_id = ?",
+                (session_id,),
+            )
+            row = cur.fetchone()
+            return str(row["content"]) if row is not None else ""
+
+    def upsert_session_summary(
+        self,
+        session_id: int,
+        content: str,
+        source_message_id: int | None = None,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO session_summaries (session_id, content, source_message_id, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    content = excluded.content,
+                    source_message_id = excluded.source_message_id,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (session_id, content, source_message_id),
+            )
+            conn.commit()
+
     def delete_session(self, session_id: int) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM session_summaries WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             conn.commit()

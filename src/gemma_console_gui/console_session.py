@@ -81,6 +81,7 @@ class ConsoleConfig:
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
+    openai_embedding_model: str = ""
     temperature: float = 0.7
 
     def openai_settings(self) -> OpenAIConnectionSettings:
@@ -88,6 +89,7 @@ class ConsoleConfig:
             base_url=self.openai_base_url or self.server_url,
             api_key=self.openai_api_key,
             model=self.openai_model,
+            embedding_model=self.openai_embedding_model,
             temperature=self.temperature,
             max_tokens=self.n_predict,
             timeout=self.response_timeout,
@@ -111,6 +113,7 @@ class OpenAICompatibleSession:
         self.config.openai_base_url = settings.base_url
         self.config.openai_api_key = settings.api_key
         self.config.openai_model = settings.model
+        self.config.openai_embedding_model = settings.embedding_model
         self.config.temperature = settings.temperature
         self.config.n_predict = settings.max_tokens
         self.config.response_timeout = settings.timeout

@@ -29,7 +29,13 @@ from .config import AppConfig, save_connection_settings
 from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
 from .llm_client import OpenAIConnectionSettings
-from .token_handler import ModelPrompt, build_model_prompt_request, normalize_prompt_text, prompt_token_budget
+from .token_handler import (
+    ModelPrompt,
+    build_memory_context,
+    build_model_prompt_request,
+    normalize_prompt_text,
+    prompt_token_budget,
+)
 
 UNICODE_ESCAPE_RE = re.compile(r'\\u[0-9a-fA-F]{4}|/u[0-9a-fA-F]{4}')
 
@@ -157,6 +163,8 @@ class MainWindow(QMainWindow):
         self.api_key_edit.setPlaceholderText('Optional for local servers')
         self.model_edit = QLineEdit(app_config.openai_model)
         self.model_edit.setPlaceholderText('Model name from your backend')
+        self.embedding_model_edit = QLineEdit(app_config.openai_embedding_model)
+        self.embedding_model_edit.setPlaceholderText('Optional embedding model for RAG')
         self.save_settings_btn = QPushButton('Save Settings')
         self.save_settings_btn.clicked.connect(self.on_save_connection_settings)
         self.test_connection_btn = QPushButton('Test Connection')
@@ -168,6 +176,7 @@ class MainWindow(QMainWindow):
         settings_layout.addRow('Base URL', self.base_url_edit)
         settings_layout.addRow('API Key', self.api_key_edit)
         settings_layout.addRow('Model Name', self.model_edit)
+        settings_layout.addRow('Embedding Model', self.embedding_model_edit)
         settings_layout.addRow(settings_button_row)
 
         left_panel = QWidget()
@@ -260,6 +269,7 @@ class MainWindow(QMainWindow):
             base_url=self.base_url_edit.text().strip(),
             api_key=self.api_key_edit.text().strip(),
             model=self.model_edit.text().strip(),
+            embedding_model=self.embedding_model_edit.text().strip(),
             temperature=self.app_config.temperature,
             max_tokens=self.app_config.n_predict,
             timeout=self.app_config.response_timeout,
@@ -270,6 +280,7 @@ class MainWindow(QMainWindow):
         self.app_config.openai_base_url = settings.base_url
         self.app_config.openai_api_key = settings.api_key
         self.app_config.openai_model = settings.model
+        self.app_config.openai_embedding_model = settings.embedding_model
         self.app_config.temperature = settings.temperature
         self.app_config.n_predict = settings.max_tokens
         if hasattr(self.console, 'update_connection_settings'):
@@ -377,7 +388,15 @@ class MainWindow(QMainWindow):
         if not display_user_text:
             return
 
-        prior_messages = self.repository.get_messages(self.current_session_id)
+        prior_message_count = self.repository.count_messages(self.current_session_id)
+        prior_messages = self.repository.get_recent_messages(
+            self.current_session_id,
+            self.app_config.recent_message_limit,
+        )
+        memory_context = build_memory_context(
+            summary=self.repository.get_session_summary(self.current_session_id),
+            max_chars=self.app_config.memory_context_char_limit,
+        )
         max_prompt_tokens = prompt_token_budget(
             self.console.config.ctx_size,
             self.app_config.response_token_reserve,
@@ -388,8 +407,13 @@ class MainWindow(QMainWindow):
             max_prompt_tokens,
             self.app_config.max_prompt_chars,
             self.app_config.system_prompt,
+            memory_context,
         )
-        was_limited = display_user_text != user_text or model_prompt.was_limited
+        was_limited = (
+            display_user_text != user_text
+            or model_prompt.was_limited
+            or prior_message_count > len(prior_messages)
+        )
         self.input_edit.clear()
         self._append_block('You', display_user_text)
         if was_limited:
@@ -480,27 +504,39 @@ class MainWindow(QMainWindow):
         if not messages:
             self._append_block('System', 'New chat started.')
             return
-        for message in messages:
-            role = message['role']
-            if role == 'user':
-                label = 'You'
-            elif role == 'assistant':
-                label = 'Assistant'
-            else:
-                label = 'System'
-            self._append_block(label, message['content'])
+        blocks = [
+            self._format_display_block(self._display_label_for_role(message['role']), message['content'])
+            for message in messages
+        ]
+        self.chat_view.setPlainText(''.join(blocks))
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
 
     def _clear_view_only(self) -> None:
         self.chat_view.clear()
 
     def _append_block(self, role: str, text: str) -> None:
-        text = normalize_text_for_display(text)
-        text = strip_unsupported_chars(text)
+        block = self._format_display_block(role, text)
         cursor = self.chat_view.textCursor()
         cursor.movePosition(QTextCursor.End)
-        cursor.insertText(f'[{role}]\n{text}\n\n')
+        cursor.insertText(block)
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
+
+    def _format_display_block(self, role: str, text: str) -> str:
+        text = normalize_text_for_display(text)
+        text = strip_unsupported_chars(text)
+        return f'[{role}]\n{text}\n\n'
+
+    @staticmethod
+    def _display_label_for_role(role: str) -> str:
+        if role == 'user':
+            return 'You'
+        if role == 'assistant':
+            return 'Assistant'
+        return 'System'
 
     @Slot()
     def _delete_current_chat(self) -> None:

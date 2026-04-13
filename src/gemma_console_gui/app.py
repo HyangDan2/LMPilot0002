@@ -31,6 +31,7 @@ def main() -> int:
         openai_base_url=config.openai_base_url,
         openai_api_key=config.openai_api_key,
         openai_model=config.openai_model,
+        openai_embedding_model=config.openai_embedding_model,
         temperature=config.temperature,
     )
 

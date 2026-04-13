@@ -83,6 +83,44 @@ class GuiFlowTests(unittest.TestCase):
         window.close()
         process_events(self.app, 5)
 
+    def test_send_uses_recent_message_window(self) -> None:
+        console = FakeConsole()
+        db_path = Path(tempfile.mkdtemp()) / "app.db"
+        repository = ChatRepository(str(db_path))
+        session_id = repository.create_session("Long chat")
+        for index in range(6):
+            repository.add_message(session_id, "user", f"user {index}")
+            repository.add_message(session_id, "assistant", f"assistant {index}")
+
+        window = MainWindow(
+            console,
+            repository,
+            AppConfig(
+                llama_cli_path="/bin/echo",
+                model_path="/tmp/model.gguf",
+                backend="cli",
+                recent_message_limit=3,
+            ),
+        )
+        window.current_session_id = session_id
+        window.input_edit.setPlainText("current")
+
+        window.on_send()
+        process_events(self.app)
+
+        prompt = console.prompts[-1]
+        self.assertIsInstance(prompt, ModelPrompt)
+        assert isinstance(prompt, ModelPrompt)
+        prompt_text = "\n".join(message["content"] for message in prompt.messages)
+        self.assertNotIn("user 0", prompt_text)
+        self.assertNotIn("assistant 0", prompt_text)
+        self.assertIn("assistant 5", prompt_text)
+        self.assertIn("current", prompt_text)
+        self.assertIn("Prompt context was shortened", window.chat_view.toPlainText())
+
+        window.close()
+        process_events(self.app, 5)
+
 
 if __name__ == "__main__":
     unittest.main()

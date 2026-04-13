@@ -37,13 +37,19 @@ class AppConfig:
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
+    openai_embedding_model: str = ""
     temperature: float = 0.7
+    recent_message_limit: int = 40
+    rag_top_k: int = 5
+    rag_min_score: float = 0.2
+    memory_context_char_limit: int = 4000
 
     def connection_settings(self) -> OpenAIConnectionSettings:
         return OpenAIConnectionSettings(
             base_url=self.openai_base_url,
             api_key=self.openai_api_key,
             model=self.openai_model,
+            embedding_model=self.openai_embedding_model,
             temperature=self.temperature,
             max_tokens=self.n_predict,
             timeout=self.response_timeout,
@@ -64,6 +70,7 @@ def load_config(path: str) -> AppConfig:
     base_url = raw.get("openai_base_url", raw.get("base_url", raw.get("server_url", "")))
     api_key = raw.get("openai_api_key", raw.get("api_key", ""))
     model = raw.get("openai_model", raw.get("model", ""))
+    embedding_model = raw.get("openai_embedding_model", raw.get("embedding_model", ""))
     temperature = float(raw.get("temperature", saved_connection.temperature))
     n_predict = int(raw.get("n_predict", raw.get("max_tokens", saved_connection.max_tokens)))
 
@@ -73,6 +80,8 @@ def load_config(path: str) -> AppConfig:
         api_key = saved_connection.api_key
     if saved_connection.model:
         model = saved_connection.model
+    if saved_connection.embedding_model:
+        embedding_model = saved_connection.embedding_model
     temperature = saved_connection.temperature if saved_connection.temperature != 0.7 else temperature
     n_predict = saved_connection.max_tokens if saved_connection.max_tokens != 512 else n_predict
 
@@ -105,7 +114,12 @@ def load_config(path: str) -> AppConfig:
         openai_base_url=base_url,
         openai_api_key=api_key,
         openai_model=model,
+        openai_embedding_model=embedding_model,
         temperature=temperature,
+        recent_message_limit=int(raw.get("recent_message_limit", 40)),
+        rag_top_k=int(raw.get("rag_top_k", 5)),
+        rag_min_score=float(raw.get("rag_min_score", 0.2)),
+        memory_context_char_limit=int(raw.get("memory_context_char_limit", 4000)),
     )
 
 
@@ -124,6 +138,7 @@ def load_connection_settings(path: str) -> OpenAIConnectionSettings:
         base_url=str(raw.get("base_url", "")),
         api_key=str(raw.get("api_key", "")),
         model=str(raw.get("model", "")),
+        embedding_model=str(raw.get("embedding_model", "")),
         temperature=float(raw.get("temperature", 0.7)),
         max_tokens=int(raw.get("max_tokens", 512)),
         timeout=float(raw.get("timeout", 180.0)),

@@ -219,6 +219,7 @@ def build_model_prompt_request(
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
     system_prompt: str | None = None,
+    memory_context: str | None = None,
 ) -> ModelPrompt:
     """Build structured chat messages and a Gemma-template completion fallback."""
     chat_messages: list[dict[str, str]] = []
@@ -226,6 +227,10 @@ def build_model_prompt_request(
     system_message = format_chat_message("system", system_prompt or "")
     if system_message is not None:
         chat_messages.append(system_message)
+
+    memory_message = format_chat_message("system", memory_context or "")
+    if memory_message is not None:
+        chat_messages.append(memory_message)
 
     for message in messages:
         formatted_message = format_chat_message(
@@ -253,6 +258,7 @@ def build_model_prompt(
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
     system_prompt: str | None = None,
+    memory_context: str | None = None,
 ) -> str:
     """Build the final history-aware prompt sent to the model."""
     return build_model_prompt_request(
@@ -261,7 +267,27 @@ def build_model_prompt(
         max_tokens,
         max_chars,
         system_prompt,
+        memory_context,
     ).completion_prompt
+
+
+def build_memory_context(
+    summary: str = "",
+    retrieved_context: str = "",
+    max_chars: int = 4000,
+) -> str:
+    parts: list[str] = []
+    normalized_summary = normalize_prompt_text(summary)
+    normalized_retrieval = normalize_prompt_text(retrieved_context)
+
+    if normalized_summary:
+        parts.append(f"Conversation summary:\n{normalized_summary}")
+    if normalized_retrieval:
+        parts.append(f"Relevant retrieved context:\n{normalized_retrieval}")
+
+    if not parts:
+        return ""
+    return truncate_text_to_char_budget("\n\n".join(parts), max_chars)
 
 
 def prompt_token_budget(ctx_size: int, reserve: int = DEFAULT_RESPONSE_TOKEN_RESERVE) -> int:
