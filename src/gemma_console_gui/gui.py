@@ -8,8 +8,11 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -22,9 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .config import AppConfig
+from .config import AppConfig, save_connection_settings
 from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
+from .llm_client import OpenAIConnectionSettings
 from .token_handler import ModelPrompt, build_model_prompt_request, normalize_prompt_text, prompt_token_budget
 
 UNICODE_ESCAPE_RE = re.compile(r'\\u[0-9a-fA-F]{4}|/u[0-9a-fA-F]{4}')
@@ -57,6 +61,9 @@ class ChatSession(Protocol):
     def stop(self, force: bool = False) -> None: ...
     def stop_generation(self) -> None: ...
     def ask(self, prompt_text: str | ModelPrompt) -> str: ...
+    def update_connection_settings(self, settings: OpenAIConnectionSettings) -> None: ...
+    def test_connection(self) -> str: ...
+    def list_models(self) -> list[str]: ...
 
 
 class ChatWorker(QObject):
@@ -80,6 +87,25 @@ class ChatWorker(QObject):
             self.error.emit('Unexpected internal error while generating a response.')
 
 
+class ConnectionTestWorker(QObject):
+    finished = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, console: ChatSession) -> None:
+        super().__init__()
+        self.console = console
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(self.console.test_connection())
+        except ConsoleSessionError as exc:
+            self.error.emit(str(exc))
+        except Exception:
+            traceback.print_exc()
+            self.error.emit('Unexpected internal error while testing the connection.')
+
+
 class MainWindow(QMainWindow):
     def __init__(self, console: ChatSession, repository: ChatRepository, app_config: AppConfig) -> None:
         super().__init__()
@@ -89,6 +115,8 @@ class MainWindow(QMainWindow):
         self.current_session_id: int | None = None
         self._worker_thread: QThread | None = None
         self._worker: ChatWorker | None = None
+        self._connection_test_thread: QThread | None = None
+        self._connection_test_worker: ConnectionTestWorker | None = None
         self._generation_stop_requested = False
 
         self.setWindowTitle(app_config.window_title)
@@ -120,6 +148,28 @@ class MainWindow(QMainWindow):
         self.clear_view_btn = QPushButton('Clear View')
         self.clear_view_btn.clicked.connect(self._clear_view_only)
 
+        settings_group = QGroupBox('OpenAI-Compatible Settings')
+        settings_layout = QFormLayout(settings_group)
+        self.base_url_edit = QLineEdit(app_config.openai_base_url)
+        self.base_url_edit.setPlaceholderText('http://127.0.0.1:8000/v1')
+        self.api_key_edit = QLineEdit(app_config.openai_api_key)
+        self.api_key_edit.setEchoMode(QLineEdit.Password)
+        self.api_key_edit.setPlaceholderText('Optional for local servers')
+        self.model_edit = QLineEdit(app_config.openai_model)
+        self.model_edit.setPlaceholderText('Model name from your backend')
+        self.save_settings_btn = QPushButton('Save Settings')
+        self.save_settings_btn.clicked.connect(self.on_save_connection_settings)
+        self.test_connection_btn = QPushButton('Test Connection')
+        self.test_connection_btn.clicked.connect(self.on_test_connection)
+        settings_button_row = QHBoxLayout()
+        settings_button_row.addStretch(1)
+        settings_button_row.addWidget(self.save_settings_btn)
+        settings_button_row.addWidget(self.test_connection_btn)
+        settings_layout.addRow('Base URL', self.base_url_edit)
+        settings_layout.addRow('API Key', self.api_key_edit)
+        settings_layout.addRow('Model Name', self.model_edit)
+        settings_layout.addRow(settings_button_row)
+
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.addWidget(QLabel('Sessions'))
@@ -129,6 +179,7 @@ class MainWindow(QMainWindow):
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
+        right_layout.addWidget(settings_group)
         right_layout.addWidget(QLabel('Chat'))
         right_layout.addWidget(self.chat_view, stretch=1)
         right_layout.addWidget(QLabel('Input'))
@@ -177,6 +228,15 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
+        if self._connection_test_thread is not None and self._connection_test_thread.isRunning():
+            self.console.stop_generation()
+            self._connection_test_thread.quit()
+            self._connection_test_thread.wait(3000)
+            if self._connection_test_thread.isRunning():
+                self._set_status('Please wait for the connection test to finish before closing.')
+                event.ignore()
+                return
+
         self.console.stop()
         super().closeEvent(event)
 
@@ -194,6 +254,83 @@ class MainWindow(QMainWindow):
 
     def _set_status(self, text: str) -> None:
         self.statusBar().showMessage(text)
+
+    def _current_connection_settings(self) -> OpenAIConnectionSettings:
+        return OpenAIConnectionSettings(
+            base_url=self.base_url_edit.text().strip(),
+            api_key=self.api_key_edit.text().strip(),
+            model=self.model_edit.text().strip(),
+            temperature=self.app_config.temperature,
+            max_tokens=self.app_config.n_predict,
+            timeout=self.app_config.response_timeout,
+        )
+
+    def _apply_connection_settings(self) -> OpenAIConnectionSettings:
+        settings = self._current_connection_settings()
+        self.app_config.openai_base_url = settings.base_url
+        self.app_config.openai_api_key = settings.api_key
+        self.app_config.openai_model = settings.model
+        self.app_config.temperature = settings.temperature
+        self.app_config.n_predict = settings.max_tokens
+        if hasattr(self.console, 'update_connection_settings'):
+            self.console.update_connection_settings(settings)
+        return settings
+
+    @Slot()
+    def on_save_connection_settings(self) -> None:
+        settings = self._apply_connection_settings()
+        try:
+            save_connection_settings(self.app_config.connection_settings_path, settings)
+        except OSError as exc:
+            QMessageBox.critical(self, 'Save Settings', f'Could not save settings: {exc}')
+            self._set_status('Settings save failed')
+            return
+        self._set_status('Settings saved')
+        self._append_block('System', 'Connection settings saved.')
+
+    @Slot()
+    def on_test_connection(self) -> None:
+        if self._worker_thread is not None and self._worker_thread.isRunning():
+            QMessageBox.information(self, 'Test Connection', 'Please wait for the current response to finish first.')
+            return
+        if self._connection_test_thread is not None and self._connection_test_thread.isRunning():
+            return
+        self._apply_connection_settings()
+        self.test_connection_btn.setDisabled(True)
+        self.save_settings_btn.setDisabled(True)
+        self._set_status('Testing connection...')
+
+        self._connection_test_thread = QThread()
+        self._connection_test_worker = ConnectionTestWorker(self.console)
+        self._connection_test_worker.moveToThread(self._connection_test_thread)
+        self._connection_test_thread.started.connect(self._connection_test_worker.run)
+        self._connection_test_worker.finished.connect(self._on_connection_test_success)
+        self._connection_test_worker.error.connect(self._on_connection_test_error)
+        self._connection_test_worker.finished.connect(self._connection_test_thread.quit)
+        self._connection_test_worker.error.connect(self._connection_test_thread.quit)
+        self._connection_test_thread.finished.connect(self._cleanup_connection_test_worker)
+        self._connection_test_thread.start()
+
+    @Slot(str)
+    def _on_connection_test_success(self, message: str) -> None:
+        self._set_status('Connection OK')
+        self._append_block('System', message)
+
+    @Slot(str)
+    def _on_connection_test_error(self, error_text: str) -> None:
+        self._set_status('Connection failed')
+        self._append_block('System', f'Connection test failed: {error_text}')
+
+    @Slot()
+    def _cleanup_connection_test_worker(self) -> None:
+        if self._connection_test_worker is not None:
+            self._connection_test_worker.deleteLater()
+        if self._connection_test_thread is not None:
+            self._connection_test_thread.deleteLater()
+        self._connection_test_worker = None
+        self._connection_test_thread = None
+        self.test_connection_btn.setDisabled(False)
+        self.save_settings_btn.setDisabled(False)
 
     def _reload_sessions(self) -> None:
         self.session_list.clear()
@@ -222,6 +359,15 @@ class MainWindow(QMainWindow):
     def on_send(self) -> None:
         user_text = self.input_edit.toPlainText().strip()
         if not user_text:
+            return
+        settings = self._apply_connection_settings()
+        if self.app_config.backend != "cli" and not settings.base_url:
+            QMessageBox.warning(self, 'Missing Base URL', 'Enter a Base URL before sending a prompt.')
+            self._set_status('Missing Base URL')
+            return
+        if self.app_config.backend != "cli" and not settings.model:
+            QMessageBox.warning(self, 'Missing Model Name', 'Enter a Model Name before sending a prompt.')
+            self._set_status('Missing Model Name')
             return
         if self.current_session_id is None:
             self.on_new_chat()
@@ -285,7 +431,7 @@ class MainWindow(QMainWindow):
 
         if self.current_session_id is not None:
             self.repository.add_message(self.current_session_id, 'assistant', answer)
-        self._append_block('Gemma', answer)
+        self._append_block('Assistant', answer)
         self._set_busy(False, 'Idle')
         self._reload_sessions()
         if self.current_session_id is not None:
@@ -316,6 +462,8 @@ class MainWindow(QMainWindow):
         self.stop_btn.setDisabled(not busy)
         self.new_chat_btn.setDisabled(busy)
         self.session_list.setDisabled(busy)
+        self.test_connection_btn.setDisabled(busy)
+        self.save_settings_btn.setDisabled(busy)
         self._set_status(status_text)
 
     @Slot(QListWidgetItem)
@@ -337,7 +485,7 @@ class MainWindow(QMainWindow):
             if role == 'user':
                 label = 'You'
             elif role == 'assistant':
-                label = 'Gemma'
+                label = 'Assistant'
             else:
                 label = 'System'
             self._append_block(label, message['content'])

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from .config import AppConfig, load_config
-from .console_session import ConsoleConfig, LlamaConsoleSession, LlamaServerSession
+from .console_session import ConsoleConfig, LlamaConsoleSession, OpenAICompatibleSession
 from .database import ChatRepository
 from .gui import ChatGUI
 
@@ -28,12 +28,16 @@ def main() -> int:
         extra_args=config.extra_args,
         startup_timeout=config.startup_timeout,
         response_timeout=config.response_timeout,
+        openai_base_url=config.openai_base_url,
+        openai_api_key=config.openai_api_key,
+        openai_model=config.openai_model,
+        temperature=config.temperature,
     )
 
     if config.backend == "cli":
         console = LlamaConsoleSession(console_config)
     else:
-        console = LlamaServerSession(console_config)
+        console = OpenAICompatibleSession(console_config)
     repository = ChatRepository(config.db_path)
     app = ChatGUI(console=console, repository=repository, app_config=config)
     app.run()

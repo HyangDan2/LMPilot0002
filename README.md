@@ -255,3 +255,17 @@ Handled internally by:
 * Multi-model selection
 * GPU offload tuning (Metal / Vulkan / OpenCL)
 * Chat export (markdown / txt)
+
+---
+
+## OpenAI-Compatible Backend Settings
+
+The app now uses an OpenAI-compatible Chat Completions backend by default. Start the GUI, then fill in the settings panel at the top of the main window:
+
+* **Base URL**: your OpenAI-compatible `/v1` base URL, for example `http://127.0.0.1:8000/v1` or `http://localhost:1234/v1`
+* **API Key**: optional for local servers; masked in the GUI and saved only in the local ignored settings file
+* **Model Name**: the exact model ID exposed by your backend
+
+Use **Save Settings** to persist those values to `openai_settings.json`. That file is ignored by git because it may contain secrets. Use **Test Connection** to check `/models` first; if model listing is unavailable, the app falls back to a minimal chat completion test when a model name is set.
+
+The checked-in `config.example.yaml` contains non-secret defaults. Runtime connection values should be entered in the GUI or kept in your local, ignored `openai_settings.json`.

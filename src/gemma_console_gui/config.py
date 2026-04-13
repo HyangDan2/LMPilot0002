@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .llm_client import OpenAIConnectionSettings
+
+
+DEFAULT_CONNECTION_SETTINGS_PATH = "openai_settings.json"
 
 
 @dataclass
 class AppConfig:
     llama_cli_path: str
     model_path: str
-    backend: str = "server"
-    server_url: str = "http://127.0.0.1:8080"
+    backend: str = "openai"
+    server_url: str = ""
     server_endpoint: str = "auto"
     n_predict: int = 512
     system_prompt: str = "You are a helpful assistant."
@@ -27,6 +33,21 @@ class AppConfig:
     window_height: int = 720
     response_token_reserve: int = 256
     max_prompt_chars: int = 12000
+    connection_settings_path: str = DEFAULT_CONNECTION_SETTINGS_PATH
+    openai_base_url: str = ""
+    openai_api_key: str = ""
+    openai_model: str = ""
+    temperature: float = 0.7
+
+    def connection_settings(self) -> OpenAIConnectionSettings:
+        return OpenAIConnectionSettings(
+            base_url=self.openai_base_url,
+            api_key=self.openai_api_key,
+            model=self.openai_model,
+            temperature=self.temperature,
+            max_tokens=self.n_predict,
+            timeout=self.response_timeout,
+        )
 
 
 def load_config(path: str) -> AppConfig:
@@ -37,6 +58,24 @@ def load_config(path: str) -> AppConfig:
     with config_path.open("r", encoding="utf-8") as f:
         raw: dict[str, Any] = yaml.safe_load(f) or {}
 
+    connection_settings_path = raw.get("connection_settings_path", DEFAULT_CONNECTION_SETTINGS_PATH)
+    saved_connection = load_connection_settings(connection_settings_path)
+
+    base_url = raw.get("openai_base_url", raw.get("base_url", raw.get("server_url", "")))
+    api_key = raw.get("openai_api_key", raw.get("api_key", ""))
+    model = raw.get("openai_model", raw.get("model", ""))
+    temperature = float(raw.get("temperature", saved_connection.temperature))
+    n_predict = int(raw.get("n_predict", raw.get("max_tokens", saved_connection.max_tokens)))
+
+    if saved_connection.base_url:
+        base_url = saved_connection.base_url
+    if saved_connection.api_key:
+        api_key = saved_connection.api_key
+    if saved_connection.model:
+        model = saved_connection.model
+    temperature = saved_connection.temperature if saved_connection.temperature != 0.7 else temperature
+    n_predict = saved_connection.max_tokens if saved_connection.max_tokens != 512 else n_predict
+
     return AppConfig(
         llama_cli_path=raw.get(
             "llama_cli_path",
@@ -46,10 +85,10 @@ def load_config(path: str) -> AppConfig:
             "model_path",
             "/home/pi/.cache/huggingface/hub/models--ggml-org--gemma-3-1b-it-GGUF/snapshots/f9c28bcd85737ffc5aef028638d3341d49869c27/gemma-3-1b-it-Q4_K_M.gguf",
         ),
-        backend=raw.get("backend", "server"),
-        server_url=raw.get("server_url", "http://127.0.0.1:8080"),
+        backend=raw.get("backend", "openai"),
+        server_url=raw.get("server_url", base_url),
         server_endpoint=raw.get("server_endpoint", "auto"),
-        n_predict=int(raw.get("n_predict", 512)),
+        n_predict=n_predict,
         system_prompt=raw.get("system_prompt", "You are a helpful assistant."),
         threads=int(raw.get("threads", 4)),
         ctx_size=int(raw.get("ctx_size", 2048)),
@@ -62,4 +101,40 @@ def load_config(path: str) -> AppConfig:
         window_height=int(raw.get("window_height", 720)),
         response_token_reserve=int(raw.get("response_token_reserve", 256)),
         max_prompt_chars=int(raw.get("max_prompt_chars", 12000)),
+        connection_settings_path=connection_settings_path,
+        openai_base_url=base_url,
+        openai_api_key=api_key,
+        openai_model=model,
+        temperature=temperature,
     )
+
+
+def load_connection_settings(path: str) -> OpenAIConnectionSettings:
+    settings_path = Path(path)
+    if not settings_path.exists():
+        return OpenAIConnectionSettings()
+
+    try:
+        with settings_path.open("r", encoding="utf-8") as f:
+            raw: dict[str, Any] = json.load(f) or {}
+    except (OSError, json.JSONDecodeError):
+        return OpenAIConnectionSettings()
+
+    return OpenAIConnectionSettings(
+        base_url=str(raw.get("base_url", "")),
+        api_key=str(raw.get("api_key", "")),
+        model=str(raw.get("model", "")),
+        temperature=float(raw.get("temperature", 0.7)),
+        max_tokens=int(raw.get("max_tokens", 512)),
+        timeout=float(raw.get("timeout", 180.0)),
+    )
+
+
+def save_connection_settings(path: str, settings: OpenAIConnectionSettings) -> None:
+    settings_path = Path(path)
+    if settings_path.parent != Path("."):
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = asdict(settings)
+    with settings_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")

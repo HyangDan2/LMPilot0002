@@ -56,7 +56,7 @@ class GuiFlowTests(unittest.TestCase):
         window = MainWindow(
             console,
             ChatRepository(str(db_path)),
-            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf"),
+            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
         )
 
         window.input_edit.setPlainText("first")

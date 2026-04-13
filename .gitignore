@@ -7,6 +7,7 @@ venv/
 .env
 .env.*
 config.yaml
+openai_settings.json
 *.db
 *.sqlite3
 /data/

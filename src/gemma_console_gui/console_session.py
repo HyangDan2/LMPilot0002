@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import pexpect
 
+from .llm_client import LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
 from .token_handler import ModelPrompt
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -77,6 +78,85 @@ class ConsoleConfig:
     extra_args: Optional[list[str]] = None
     startup_timeout: float = 180.0
     response_timeout: float = 180.0
+    openai_base_url: str = ""
+    openai_api_key: str = ""
+    openai_model: str = ""
+    temperature: float = 0.7
+
+    def openai_settings(self) -> OpenAIConnectionSettings:
+        return OpenAIConnectionSettings(
+            base_url=self.openai_base_url or self.server_url,
+            api_key=self.openai_api_key,
+            model=self.openai_model,
+            temperature=self.temperature,
+            max_tokens=self.n_predict,
+            timeout=self.response_timeout,
+        )
+
+
+class OpenAICompatibleSession:
+    def __init__(self, config: ConsoleConfig) -> None:
+        self.config = config
+        self._client = OpenAICompatibleClient(config.openai_settings())
+        self._started = False
+
+    def start(self) -> None:
+        # Startup should be safe even before users enter runtime credentials.
+        self._started = True
+
+    def is_alive(self) -> bool:
+        return self._started
+
+    def update_connection_settings(self, settings: OpenAIConnectionSettings) -> None:
+        self.config.openai_base_url = settings.base_url
+        self.config.openai_api_key = settings.api_key
+        self.config.openai_model = settings.model
+        self.config.temperature = settings.temperature
+        self.config.n_predict = settings.max_tokens
+        self.config.response_timeout = settings.timeout
+        self._client = OpenAICompatibleClient(settings)
+
+    def ask(self, user_text: str | ModelPrompt) -> str:
+        if not self.is_alive():
+            self.start()
+
+        if isinstance(user_text, ModelPrompt):
+            messages = [dict(message) for message in user_text.messages]
+        else:
+            if not user_text.strip():
+                raise ConsoleSessionError("Empty prompt is not allowed.")
+            messages = [{"role": "user", "content": user_text}]
+
+        if self.config.system_prompt and not any(message.get("role") == "system" for message in messages):
+            messages.insert(0, {"role": "system", "content": self.config.system_prompt})
+
+        try:
+            answer = self._client.chat_completion(messages)
+        except LLMClientError as exc:
+            raise ConsoleSessionError(str(exc)) from exc
+
+        if not answer.strip():
+            raise ConsoleSessionError("Model returned an empty response.")
+        return answer
+
+    def test_connection(self) -> str:
+        try:
+            return self._client.test_connection()
+        except LLMClientError as exc:
+            raise ConsoleSessionError(str(exc)) from exc
+
+    def list_models(self) -> list[str]:
+        try:
+            return self._client.list_models()
+        except LLMClientError as exc:
+            raise ConsoleSessionError(str(exc)) from exc
+
+    def stop(self, force: bool = False) -> None:
+        self.stop_generation()
+        self._started = False
+
+    def stop_generation(self) -> None:
+        self._client.close_active_request()
 
 
 class LlamaServerSession:
