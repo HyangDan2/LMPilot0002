@@ -41,7 +41,7 @@ class OpenAICompatibleClient:
         self._lock = threading.Lock()
         self._stop_requested = False
 
-    def chat_completion(self, messages: list[dict[str, str]]) -> str:
+    def chat_completion(self, messages: list[dict[str, Any]]) -> str:
         self._validate_for_chat()
         payload: dict[str, Any] = {
             "model": self.settings.model.strip(),
@@ -53,7 +53,7 @@ class OpenAICompatibleClient:
         data = self._request_json("POST", "/chat/completions", payload)
         return self._extract_chat_text(data)
 
-    def stream_chat_completion(self, messages: list[dict[str, str]]) -> Iterator[ChatStreamChunk]:
+    def stream_chat_completion(self, messages: list[dict[str, Any]]) -> Iterator[ChatStreamChunk]:
         self._validate_for_chat()
         payload: dict[str, Any] = {
             "model": self.settings.model.strip(),

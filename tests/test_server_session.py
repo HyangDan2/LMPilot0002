@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from src.gemma_console_gui.console_session import ConsoleConfig, LlamaServerSession
+from src.gemma_console_gui.console_session import ConsoleConfig, ConsoleSessionError, LlamaServerSession
 from src.gemma_console_gui.token_handler import build_model_prompt_request
 
 
@@ -144,6 +144,51 @@ class ServerSessionTests(unittest.TestCase):
         self.assertEqual(len(FakeConnection.requests), 1)
         self.assertEqual(FakeConnection.requests[0]["endpoint"], "/completion")
         self.assertIn("<start_of_turn>user\nhello<end_of_turn>", FakeConnection.requests[0]["body"]["prompt"])
+
+    def test_server_session_sends_structured_image_content_to_chat_endpoint(self) -> None:
+        FakeConnection.responses.append(FakeResponse(200, {"choices": [{"message": {"content": "vision answer"}}]}))
+        session = self.make_session(
+            ConsoleConfig(
+                llama_cli_path="/unused",
+                model_path="/unused",
+                server_url="http://127.0.0.1:8080",
+            )
+        )
+        content = [
+            {"type": "text", "text": "describe it"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+        ]
+        prompt = build_model_prompt_request([], content, 100)
+
+        answer = session.ask(prompt)
+
+        self.assertEqual(answer, "vision answer")
+        self.assertEqual(FakeConnection.requests[0]["body"]["messages"][-1]["content"], content)
+        self.assertIn("[image]", prompt.completion_prompt)
+
+    def test_server_session_rejects_structured_image_content_for_completion_fallback(self) -> None:
+        FakeConnection.responses.append(FakeResponse(404, {"error": "not found"}))
+        session = self.make_session(
+            ConsoleConfig(
+                llama_cli_path="/unused",
+                model_path="/unused",
+                server_url="http://127.0.0.1:8080",
+            )
+        )
+        prompt = build_model_prompt_request(
+            [],
+            [
+                {"type": "text", "text": "describe it"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+            100,
+        )
+
+        with self.assertRaises(ConsoleSessionError) as raised:
+            session.ask(prompt)
+
+        self.assertIn("vision backend", str(raised.exception))
+        self.assertEqual(len(FakeConnection.requests), 1)
 
     def test_server_session_cleans_runaway_dialogue_continuation(self) -> None:
         FakeConnection.responses.append(

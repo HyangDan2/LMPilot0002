@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import traceback
 from pathlib import Path
-from typing import Iterator, Protocol
+from typing import Any, Iterator, Protocol
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut, QTextDocumentFragment
@@ -27,7 +27,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.tools import ToolError, parse_use_file_command, run_tool_command, run_use_file_command
+from src.tools import (
+    PromptToolResult,
+    ToolError,
+    parse_image_analyze_command,
+    parse_use_file_command,
+    run_image_analyze_command,
+    run_tool_command,
+    run_use_file_command,
+)
 
 from .attachment_handler import (
     AttachmentError,
@@ -453,22 +461,36 @@ class MainWindow(QMainWindow):
         if not display_user_text:
             return
 
-        use_file_instruction = parse_use_file_command(display_user_text)
-        used_attachment_filenames: list[str] = []
-        model_user_text = display_user_text
-        if use_file_instruction is not None:
-            try:
-                transformed_prompt = run_use_file_command(display_user_text, list(self._attached_file_paths))
-            except ToolError as exc:
+        prompt_tool_result: PromptToolResult | None = None
+        prompt_tool_name = ""
+        model_user_text: Any = display_user_text
+        try:
+            if parse_image_analyze_command(display_user_text) is not None:
+                prompt_tool_result = run_image_analyze_command(display_user_text, list(self._attached_file_paths))
+                prompt_tool_name = "/image_analyze"
+            elif parse_use_file_command(display_user_text) is not None:
+                prompt_tool_result = run_use_file_command(display_user_text, list(self._attached_file_paths))
+                prompt_tool_name = "/use_file"
+        except ToolError as exc:
+            self.input_edit.clear()
+            self._append_local_tool_error(display_user_text, str(exc))
+            return
+
+        if prompt_tool_result is not None:
+            if prompt_tool_name == "/image_analyze" and self.app_config.backend == "cli":
                 self.input_edit.clear()
-                self._append_local_tool_error(display_user_text, str(exc))
+                self._append_local_tool_error(
+                    display_user_text,
+                    "/image_analyze requires an OpenAI-compatible or chat-completions vision backend.",
+                )
                 return
-            if transformed_prompt is not None:
-                model_user_text = transformed_prompt
-                used_attachment_filenames = self._attached_filenames()
+            model_user_text = prompt_tool_result.content
         elif self._try_handle_tool_command(display_user_text):
             self.input_edit.clear()
             return
+
+        used_attachment_paths = [prompt_tool_result.selected_path] if prompt_tool_result is not None else []
+        used_attachment_filenames = self._attached_filenames(used_attachment_paths)
 
         settings = self._apply_connection_settings()
         if self.app_config.backend != "cli" and not settings.base_url:
@@ -512,12 +534,16 @@ class MainWindow(QMainWindow):
         self.input_edit.clear()
         self._append_block('You', display_user_text)
         if used_attachment_filenames:
-            self._append_block('System', f'Using attached files:\n{self._attached_file_summary()}')
+            self._append_block(
+                'System',
+                f'Using attached file:\n{self._attached_file_summary(used_attachment_paths)}',
+            )
         if was_limited:
             self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
         self.repository.add_message(self.current_session_id, 'user', display_user_text)
         if used_attachment_filenames:
-            title_text = use_file_instruction or DEFAULT_ATTACHMENT_PROMPT
+            assert prompt_tool_result is not None
+            title_text = prompt_tool_result.instruction or DEFAULT_ATTACHMENT_PROMPT
         else:
             title_text = display_user_text
         self._set_new_session_title(self.current_session_id, title_text, used_attachment_filenames)
@@ -718,12 +744,14 @@ class MainWindow(QMainWindow):
     def _clear_view_only(self) -> None:
         self.chat_view.clear()
 
-    def _attached_filenames(self) -> list[str]:
-        return [Path(path).name for path in self._attached_file_paths]
+    def _attached_filenames(self, paths: list[str] | None = None) -> list[str]:
+        source_paths = self._attached_file_paths if paths is None else paths
+        return [Path(path).name for path in source_paths]
 
-    def _attached_file_summary(self) -> str:
+    def _attached_file_summary(self, paths: list[str] | None = None) -> str:
+        source_paths = self._attached_file_paths if paths is None else paths
         lines: list[str] = []
-        for path in self._attached_file_paths:
+        for path in source_paths:
             file_path = Path(path)
             file_type = file_path.suffix.lower().lstrip(".") or "file"
             lines.append(f'- {file_path.name} ({file_type})')

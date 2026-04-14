@@ -29,7 +29,8 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
   * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
 * 📎 File attachments
 
-  * Attach reusable file paths, then call `./use_file` when the model should read them
+  * Attach reusable file paths, then call `/use_file filename instruction` when the model should read one file
+  * Call `/image_analyze filename instruction` to send an attached image to a vision-capable backend
 
 ---
 
@@ -161,10 +162,24 @@ python run.py --config config.yaml
   Use **Attach File** in the left sidebar under **Sessions** to keep a reusable list of file paths. Files are not automatically included in every prompt. To use the selected attachments, type:
 
   ```text
-  ./use_file summarize this file
+  /use_file example.txt summarize this file
   ```
 
-  The GUI runs `./use_file` first, extracts supported file content, and then sends the transformed prompt through the normal LLM flow. Use the attachment list to remove a selected file or clear the full list. `/use_file` is intentionally ignored; the explicit `./use_file` prefix prevents accidental huge prompts.
+  The first argument is the attached filename or full path. Everything after the first argument becomes the model instruction, so this is also valid:
+
+  ```text
+  /use_file example.txt translate file to Japanese
+  ```
+
+  The GUI runs `/use_file` first, extracts that file's content, and then sends the transformed prompt through the normal LLM flow. Use the attachment list to remove a selected file or clear the full list. Attachments are ignored unless you call `/use_file`, which prevents accidental huge prompts.
+
+  For image-capable OpenAI-compatible backends, use:
+
+  ```text
+  /image_analyze chart.png summarize the visible trend
+  ```
+
+  `/image_analyze` selects one attached image, sends it as a base64 data URL with the instruction text, and requires a vision-capable chat-completions backend. The completion fallback and CLI backend cannot receive image content.
 
   Supported file types:
 
@@ -203,11 +218,12 @@ GUI (PySide6)
    │
    ├── Local Tools
    │      ├── dict-based registry in src/tools
-   │      └── calculator command (/calc)
+   │      ├── calculator command (/calc)
+   │      └── prompt-transforming attachment commands
    │
    ├── Attachments
    │      ├── text/PDF/DOCX/image extraction
-   │      └── explicit ./use_file prompt context
+   │      └── explicit /use_file and /image_analyze prompt context
    │
    └── Text Processing
           ├── ANSI strip

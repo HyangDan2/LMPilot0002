@@ -20,15 +20,27 @@ The current calculator is available manually from chat:
 Attached files are available through the prompt-transforming tool command:
 
 ```text
-./use_file summarize this file
+/use_file example.txt summarize this file
 ```
 
-`./use_file` reads the reusable attachment list selected in the GUI, builds file context, and then sends the transformed prompt to the normal LLM flow. It intentionally requires the `./` prefix so `/use_file` remains ignored by the local terminal-only command path.
+`/use_file` reads one file from the reusable attachment list selected in the GUI, builds file context, and then sends the transformed prompt to the normal LLM flow. The first argument is the attached filename or full path. Everything after that is the model instruction:
+
+```text
+/use_file example.txt translate file to Japanese
+```
+
+Image analysis uses the same pattern but sends OpenAI-compatible vision content:
+
+```text
+/image_analyze chart.png summarize the visible trend
+```
+
+`/image_analyze` sends one attached image as a base64 data URL plus the instruction text. Use an OpenAI-compatible or chat-completions vision backend for this command.
 
 For future tools, add a module with the implementation, register a new dictionary entry in `TOOL_REGISTRY`, and keep the handler signature as:
 
 ```python
-def handler(arguments: dict[str, object]) -> str:
+def handler(arguments: dict[str, object]) -> object:
     ...
 ```
 

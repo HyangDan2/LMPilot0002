@@ -13,7 +13,7 @@ GEMMA_END_OF_TURN = "<end_of_turn>"
 
 @dataclass(frozen=True)
 class ModelPrompt:
-    messages: list[dict[str, str]]
+    messages: list[dict[str, Any]]
     completion_prompt: str
     was_limited: bool = False
 
@@ -122,16 +122,72 @@ def _text_fits_budget(text: str, max_tokens: int, max_chars: int) -> bool:
     return estimate_token_count(text) <= max_tokens and len(text) <= max_chars
 
 
-def format_chat_message(role: str, content: str) -> dict[str, str] | None:
-    normalized_content = normalize_prompt_text(content)
-    if not normalized_content:
+def message_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content) if content is not None else ""
+
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("text"), str):
+            parts.append(item["text"])
+            continue
+        if isinstance(item.get("content"), str):
+            parts.append(item["content"])
+            continue
+        if "image_url" in item:
+            parts.append("[image]")
+    return "\n".join(part for part in parts if part)
+
+
+def _content_has_value(content: Any) -> bool:
+    if isinstance(content, list):
+        return any(_content_has_value(item) for item in content)
+    if isinstance(content, dict):
+        if "image_url" in content:
+            return True
+        return bool(message_content_to_text([content]).strip())
+    return bool(message_content_to_text(content).strip())
+
+
+def _normalize_structured_content(content: list[Any]) -> list[Any]:
+    normalized: list[Any] = []
+    for item in content:
+        if isinstance(item, str):
+            text = normalize_prompt_text(item)
+            if text:
+                normalized.append({"type": "text", "text": text})
+            continue
+        if not isinstance(item, dict):
+            continue
+        block = dict(item)
+        for key in ("text", "content"):
+            if isinstance(block.get(key), str):
+                block[key] = normalize_prompt_text(block[key])
+        if _content_has_value(block):
+            normalized.append(block)
+    return normalized
+
+
+def format_chat_message(role: str, content: Any) -> dict[str, Any] | None:
+    if isinstance(content, list):
+        normalized_content = _normalize_structured_content(content)
+    else:
+        normalized_content = normalize_prompt_text(content)
+    if not _content_has_value(normalized_content):
         return None
     return {"role": _canonical_role(role), "content": normalized_content}
 
 
-def _completion_turn_for_message(message: dict[str, str]) -> str:
+def _completion_turn_for_message(message: dict[str, Any]) -> str:
     role = message["role"]
-    content = message["content"]
+    content = message_content_to_text(message.get("content", ""))
     if role == "system":
         return f"System instruction:\n{content}"
     if role == "assistant":
@@ -141,22 +197,24 @@ def _completion_turn_for_message(message: dict[str, str]) -> str:
     return f"<start_of_turn>{gemma_role}\n{content}{GEMMA_END_OF_TURN}"
 
 
-def format_gemma_completion_prompt(messages: list[dict[str, str]]) -> str:
+def format_gemma_completion_prompt(messages: list[dict[str, Any]]) -> str:
     turns = [_completion_turn_for_message(message) for message in messages if message.get("content")]
     turns.append(GEMMA_ASSISTANT_CUE)
     return "\n".join(turns)
 
 
-def _messages_fit_budget(messages: list[dict[str, str]], max_tokens: int, max_chars: int) -> bool:
+def _messages_fit_budget(messages: list[dict[str, Any]], max_tokens: int, max_chars: int) -> bool:
     return _text_fits_budget(format_gemma_completion_prompt(messages), max_tokens, max_chars)
 
 
 def _truncate_message_to_budget(
-    message: dict[str, str],
-    fixed_messages: list[dict[str, str]],
+    message: dict[str, Any],
+    fixed_messages: list[dict[str, Any]],
     max_tokens: int,
     max_chars: int,
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
+    if not isinstance(message.get("content"), str):
+        return None
     empty_message = {"role": message["role"], "content": ""}
     base_turns = [
         _completion_turn_for_message(fixed_message)
@@ -178,17 +236,17 @@ def _truncate_message_to_budget(
 
 
 def trim_messages_to_budget(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Keep the newest chat messages that fit the Gemma completion fallback budget."""
     if max_tokens <= 0 or max_chars <= 0:
         return []
 
     fixed_messages = [message for message in messages if message["role"] == "system"]
     conversation_messages = [message for message in messages if message["role"] != "system"]
-    selected: list[dict[str, str]] = []
+    selected: list[dict[str, Any]] = []
 
     for message in reversed(conversation_messages):
         candidate = fixed_messages + [message] + selected
@@ -215,14 +273,14 @@ def trim_messages_to_budget(
 
 def build_model_prompt_request(
     messages: list[dict[str, Any]],
-    current_user_text: str,
+    current_user_text: Any,
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
     system_prompt: str | None = None,
     memory_context: str | None = None,
 ) -> ModelPrompt:
     """Build structured chat messages and a Gemma-template completion fallback."""
-    chat_messages: list[dict[str, str]] = []
+    chat_messages: list[dict[str, Any]] = []
 
     system_message = format_chat_message("system", system_prompt or "")
     if system_message is not None:
@@ -235,7 +293,7 @@ def build_model_prompt_request(
     for message in messages:
         formatted_message = format_chat_message(
             str(message.get("role", "")),
-            str(message.get("content", "")),
+            message.get("content", ""),
         )
         if formatted_message is not None:
             chat_messages.append(formatted_message)
@@ -254,7 +312,7 @@ def build_model_prompt_request(
 
 def build_model_prompt(
     messages: list[dict[str, Any]],
-    current_user_text: str,
+    current_user_text: Any,
     max_tokens: int,
     max_chars: int = DEFAULT_MAX_PROMPT_CHARS,
     system_prompt: str | None = None,

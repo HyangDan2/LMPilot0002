@@ -16,7 +16,7 @@ class UseFileError(Exception):
 
 def build_use_file_prompt(paths: list[str], instruction: str = "") -> str:
     if not paths:
-        raise UseFileError("Attach at least one file before using ./use_file.")
+        raise UseFileError("Attach at least one file before using /use_file.")
 
     attachments: list[dict[str, str]] = []
     failures: list[str] = []

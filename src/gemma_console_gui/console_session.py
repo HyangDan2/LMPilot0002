@@ -7,13 +7,13 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 from urllib.parse import urlparse
 
 import pexpect
 
 from .llm_client import ChatStreamChunk, LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
-from .token_handler import ModelPrompt
+from .token_handler import ModelPrompt, message_content_to_text
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 TIMING_LINE_RE = re.compile(r"^\[\s*Prompt:.*?\]\s*$", re.MULTILINE)
@@ -173,7 +173,7 @@ class OpenAICompatibleSession:
         if not "".join(answer_parts).strip():
             raise ConsoleSessionError("Model returned an empty response.")
 
-    def _build_chat_messages(self, user_text: str | ModelPrompt) -> list[dict[str, str]]:
+    def _build_chat_messages(self, user_text: str | ModelPrompt) -> list[dict[str, Any]]:
         if isinstance(user_text, ModelPrompt):
             messages = [dict(message) for message in user_text.messages]
         else:
@@ -190,11 +190,12 @@ class OpenAICompatibleSession:
         return REASONING_ONLY_ERROR in str(exc)
 
     @staticmethod
-    def _with_final_answer_retry_instruction(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    def _with_final_answer_retry_instruction(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         retry_messages = [dict(message) for message in messages]
         for message in retry_messages:
             if message.get("role") == "system":
-                message["content"] = f"{message.get('content', '').strip()}\n\n{FINAL_ANSWER_RETRY_INSTRUCTION}".strip()
+                content = message_content_to_text(message.get("content", "")).strip()
+                message["content"] = f"{content}\n\n{FINAL_ANSWER_RETRY_INSTRUCTION}".strip()
                 return retry_messages
         retry_messages.insert(0, {"role": "system", "content": FINAL_ANSWER_RETRY_INSTRUCTION})
         return retry_messages
@@ -243,6 +244,11 @@ class LlamaServerSession:
 
         last_response_body = ""
         for mode, endpoint in self._endpoint_candidates():
+            if mode == "completion" and self._prompt_has_structured_content(user_text):
+                raise ConsoleSessionError(
+                    "/image_analyze requires a chat-completions vision backend; "
+                    "the completion endpoint cannot receive image content."
+                )
             payload = (
                 self._build_chat_payload(user_text)
                 if mode == "chat"
@@ -375,9 +381,15 @@ class LlamaServerSession:
         if isinstance(prompt, ModelPrompt):
             return bool(
                 prompt.completion_prompt.strip()
-                or any(message["content"].strip() for message in prompt.messages)
+                or any(message_content_to_text(message.get("content", "")).strip() for message in prompt.messages)
             )
         return bool(prompt.strip())
+
+    @staticmethod
+    def _prompt_has_structured_content(prompt: str | ModelPrompt) -> bool:
+        return isinstance(prompt, ModelPrompt) and any(
+            isinstance(message.get("content"), list) for message in prompt.messages
+        )
 
     def _extra_args_as_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {}
@@ -409,8 +421,9 @@ class LlamaServerSession:
             raise ConsoleSessionError(f"Invalid llama-server JSON response: {response_body}") from exc
 
         if isinstance(data, dict):
-            if isinstance(data.get("content"), str):
-                return data["content"].strip()
+            content = data.get("content")
+            if isinstance(content, str | list):
+                return message_content_to_text(content).strip()
             if isinstance(data.get("completion"), str):
                 return data["completion"].strip()
             choices = data.get("choices")
@@ -421,8 +434,10 @@ class LlamaServerSession:
                     if isinstance(text, str):
                         return text.strip()
                     message = choice.get("message")
-                    if isinstance(message, dict) and isinstance(message.get("content"), str):
-                        return message["content"].strip()
+                    if isinstance(message, dict):
+                        content = message.get("content")
+                        if isinstance(content, str | list):
+                            return message_content_to_text(content).strip()
 
         raise ConsoleSessionError(f"Unsupported llama-server response: {response_body}")
 
@@ -476,6 +491,10 @@ class LlamaConsoleSession:
 
     def ask(self, user_text: str | ModelPrompt) -> str:
         if isinstance(user_text, ModelPrompt):
+            if LlamaServerSession._prompt_has_structured_content(user_text):
+                raise ConsoleSessionError(
+                    "/image_analyze requires an OpenAI-compatible or chat-completions vision backend."
+                )
             user_text = user_text.completion_prompt
 
         if not user_text.strip():
