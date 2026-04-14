@@ -159,7 +159,7 @@ class OpenAICompatibleClient:
             return data
         except LLMClientError:
             raise
-        except (OSError, http.client.HTTPException) as exc:
+        except (OSError, AttributeError, http.client.HTTPException) as exc:
             if self._stop_requested:
                 raise LLMClientError("Generation stopped.") from exc
             raise LLMClientError(f"{type(exc).__name__}: {exc}") from exc
@@ -217,7 +217,7 @@ class OpenAICompatibleClient:
                 yield event
         except LLMClientError:
             raise
-        except (OSError, http.client.HTTPException) as exc:
+        except (OSError, AttributeError, http.client.HTTPException) as exc:
             if self._stop_requested:
                 raise LLMClientError("Generation stopped.") from exc
             raise LLMClientError(f"{type(exc).__name__}: {exc}") from exc

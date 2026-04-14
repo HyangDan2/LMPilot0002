@@ -7,6 +7,7 @@ from src.gemma_console_gui.attachment_handler import (
     extract_text_from_file,
     format_attachment_context,
     format_user_text_with_attachments,
+    validate_attachment_path,
 )
 
 
@@ -27,6 +28,12 @@ class AttachmentHandlerTests(unittest.TestCase):
 
         with self.assertRaises(AttachmentError):
             extract_text_from_file(str(path))
+
+    def test_validate_attachment_path_does_not_extract_content(self) -> None:
+        path = Path(tempfile.mkdtemp()) / "note.txt"
+        path.write_text("hello attachment", encoding="utf-8")
+
+        self.assertEqual(validate_attachment_path(str(path)), path.resolve())
 
     def test_format_user_text_with_attachments(self) -> None:
         context = format_attachment_context(

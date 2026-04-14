@@ -43,13 +43,19 @@ class ExtractedAttachment:
     extracted_text: str
 
 
-def extract_text_from_file(path: str, image_mode: ImageMode = "auto") -> ExtractedAttachment:
+def validate_attachment_path(path: str) -> Path:
     file_path = Path(path).expanduser().resolve()
     suffix = file_path.suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
         raise AttachmentError(f"Unsupported file type: {suffix or '(none)'}")
     if not file_path.is_file():
         raise AttachmentError(f"File not found: {file_path}")
+    return file_path
+
+
+def extract_text_from_file(path: str, image_mode: ImageMode = "auto") -> ExtractedAttachment:
+    file_path = validate_attachment_path(path)
+    suffix = file_path.suffix.lower()
 
     if suffix in PLAIN_TEXT_EXTENSIONS:
         text = _read_text_file(file_path)

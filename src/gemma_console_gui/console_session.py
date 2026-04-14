@@ -139,17 +139,19 @@ class OpenAICompatibleSession:
             self.start()
 
         messages = self._build_chat_messages(user_text)
-        emitted_chunk = False
+        emitted_final_text = False
         answer_parts: list[str] = []
 
         try:
             for chunk in self._client.stream_chat_completion(messages):
-                emitted_chunk = True
-                if chunk.kind == "final":
+                if chunk.kind == "final" and chunk.text:
+                    emitted_final_text = True
                     answer_parts.append(chunk.text)
                 yield chunk
         except LLMClientError as exc:
-            if not emitted_chunk:
+            if str(exc) == "Generation stopped.":
+                raise ConsoleSessionError(str(exc)) from exc
+            if not emitted_final_text:
                 answer = self.ask(user_text)
                 yield ChatStreamChunk(kind="final", text=answer)
                 return

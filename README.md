@@ -29,7 +29,7 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
   * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
 * 📎 File attachments
 
-  * Attach text, code, document, and image files to the next prompt
+  * Attach reusable file paths, then call `./use_file` when the model should read them
 
 ---
 
@@ -158,7 +158,13 @@ python run.py --config config.yaml
 
 * **Attachments and images**
 
-  Use **Attach File** beside the prompt controls to add file contents to the next model request. The chat view shows a compact attached-file summary, while extracted text is included in the prompt context.
+  Use **Attach File** in the left sidebar under **Sessions** to keep a reusable list of file paths. Files are not automatically included in every prompt. To use the selected attachments, type:
+
+  ```text
+  ./use_file summarize this file
+  ```
+
+  The GUI runs `./use_file` first, extracts supported file content, and then sends the transformed prompt through the normal LLM flow. Use the attachment list to remove a selected file or clear the full list. `/use_file` is intentionally ignored; the explicit `./use_file` prefix prevents accidental huge prompts.
 
   Supported file types:
 
@@ -201,7 +207,7 @@ GUI (PySide6)
    │
    ├── Attachments
    │      ├── text/PDF/DOCX/image extraction
-   │      └── prompt-time file context
+   │      └── explicit ./use_file prompt context
    │
    └── Text Processing
           ├── ANSI strip

@@ -14,10 +14,17 @@ class FakeResponse:
 
 
 class FakeStreamingResponse:
-    def __init__(self, status: int, lines: list[str], body: dict | None = None) -> None:
+    def __init__(
+        self,
+        status: int,
+        lines: list[str],
+        body: dict | None = None,
+        readline_error: Exception | None = None,
+    ) -> None:
         self.status = status
         self.lines = [line.encode("utf-8") for line in lines]
         self.body = body or {}
+        self.readline_error = readline_error
 
     def read(self) -> bytes:
         if self.body:
@@ -25,6 +32,8 @@ class FakeStreamingResponse:
         return b"".join(self.lines)
 
     def readline(self) -> bytes:
+        if self.readline_error is not None:
+            raise self.readline_error
         if not self.lines:
             return b""
         return self.lines.pop(0)
@@ -154,6 +163,24 @@ class OpenAICompatibleClientTests(unittest.TestCase):
             list(client.stream_chat_completion([{"role": "user", "content": "Hi"}]))
 
         self.assertIn("reasoning only", str(raised.exception))
+
+    def test_stream_chat_completion_wraps_attribute_error_from_backend(self) -> None:
+        FakeConnection.responses.append(
+            FakeStreamingResponse(
+                200,
+                [],
+                readline_error=AttributeError("'NoneType' object has no attribute 'peek'"),
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        with self.assertRaises(LLMClientError) as raised:
+            list(client.stream_chat_completion([{"role": "user", "content": "Hi"}]))
+
+        self.assertIn("AttributeError", str(raised.exception))
+        self.assertIn("peek", str(raised.exception))
 
     def test_chat_completion_accepts_message_content_blocks(self) -> None:
         FakeConnection.responses.append(

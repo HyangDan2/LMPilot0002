@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import traceback
+from pathlib import Path
 from typing import Iterator, Protocol
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
@@ -26,14 +27,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.tools import ToolError, run_tool_command
+from src.tools import ToolError, parse_use_file_command, run_tool_command, run_use_file_command
 
 from .attachment_handler import (
     AttachmentError,
     SUPPORTED_EXTENSIONS,
-    extract_text_from_file,
-    format_attachment_context,
-    format_user_text_with_attachments,
+    validate_attachment_path,
 )
 from .config import AppConfig, save_connection_settings
 from .console_session import ConsoleConfig, ConsoleSessionError
@@ -149,7 +148,7 @@ class MainWindow(QMainWindow):
         self._generation_stop_requested = False
         self._streaming_assistant_started = False
         self._reasoning_placeholder_start: int | None = None
-        self._pending_attachments: list[dict[str, str]] = []
+        self._attached_file_paths: list[str] = []
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -165,14 +164,18 @@ class MainWindow(QMainWindow):
         self.input_edit.setFixedHeight(120)
 
         self.attachment_list = QListWidget()
-        self.attachment_list.setMaximumHeight(90)
-        self.attachment_list.setVisible(False)
+        self.attachment_list.setMaximumHeight(120)
+        self.attachment_list.currentRowChanged.connect(self._on_attachment_selection_changed)
 
         self.attach_file_btn = QPushButton('Attach File')
         self.attach_file_btn.clicked.connect(self.on_attach_files)
 
+        self.remove_attachment_btn = QPushButton('Remove Attachment')
+        self.remove_attachment_btn.clicked.connect(self._remove_selected_attachment)
+        self.remove_attachment_btn.setDisabled(True)
+
         self.clear_attachments_btn = QPushButton('Clear Attachments')
-        self.clear_attachments_btn.clicked.connect(self._clear_pending_attachments)
+        self.clear_attachments_btn.clicked.connect(self._clear_attached_files)
         self.clear_attachments_btn.setDisabled(True)
 
         self.send_btn = QPushButton('Send')
@@ -220,6 +223,13 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_panel)
         left_layout.addWidget(QLabel('Sessions'))
         left_layout.addWidget(self.session_list)
+        left_layout.addWidget(QLabel('Attachments'))
+        left_layout.addWidget(self.attachment_list)
+        attachment_button_row = QHBoxLayout()
+        attachment_button_row.addWidget(self.attach_file_btn)
+        attachment_button_row.addWidget(self.remove_attachment_btn)
+        left_layout.addLayout(attachment_button_row)
+        left_layout.addWidget(self.clear_attachments_btn)
         left_layout.addWidget(self.new_chat_btn)
         left_layout.addWidget(self.delete_chat_btn)
 
@@ -230,12 +240,9 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.chat_view, stretch=1)
         right_layout.addWidget(QLabel('Input'))
         right_layout.addWidget(self.input_edit)
-        right_layout.addWidget(self.attachment_list)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
-        button_row.addWidget(self.attach_file_btn)
-        button_row.addWidget(self.clear_attachments_btn)
         button_row.addWidget(self.clear_view_btn)
         button_row.addWidget(self.stop_btn)
         button_row.addWidget(self.send_btn)
@@ -418,25 +425,18 @@ class MainWindow(QMainWindow):
         if not files:
             return
 
-        existing_paths = {attachment['path'] for attachment in self._pending_attachments}
+        existing_paths = set(self._attached_file_paths)
         failures: list[str] = []
         for path in files:
             try:
-                attachment = extract_text_from_file(path)
+                attachment_path = str(validate_attachment_path(path))
             except AttachmentError as exc:
                 failures.append(str(exc))
                 continue
-            if attachment.path in existing_paths:
+            if attachment_path in existing_paths:
                 continue
-            self._pending_attachments.append(
-                {
-                    'filename': attachment.filename,
-                    'path': attachment.path,
-                    'file_type': attachment.file_type,
-                    'extracted_text': attachment.extracted_text,
-                }
-            )
-            existing_paths.add(attachment.path)
+            self._attached_file_paths.append(attachment_path)
+            existing_paths.add(attachment_path)
 
         self._refresh_attachment_list()
         if failures:
@@ -445,13 +445,27 @@ class MainWindow(QMainWindow):
     @Slot()
     def on_send(self) -> None:
         user_text = self.input_edit.toPlainText().strip()
-        if not user_text and not self._pending_attachments:
+        if not user_text:
             return
         normalized_user_text = normalize_prompt_text(user_text) if user_text else ''
-        display_user_text = normalized_user_text or DEFAULT_ATTACHMENT_PROMPT
+        display_user_text = normalized_user_text
         if not display_user_text:
             return
-        if not self._pending_attachments and self._try_handle_tool_command(display_user_text):
+
+        use_file_instruction = parse_use_file_command(display_user_text)
+        used_attachment_filenames: list[str] = []
+        model_user_text = display_user_text
+        if use_file_instruction is not None:
+            try:
+                transformed_prompt = run_use_file_command(display_user_text, list(self._attached_file_paths))
+            except ToolError as exc:
+                self.input_edit.clear()
+                self._append_local_tool_error(display_user_text, str(exc))
+                return
+            if transformed_prompt is not None:
+                model_user_text = transformed_prompt
+                used_attachment_filenames = self._attached_filenames()
+        elif self._try_handle_tool_command(display_user_text):
             self.input_edit.clear()
             return
 
@@ -468,8 +482,6 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
 
         assert self.current_session_id is not None
-        attachment_context = format_attachment_context(self._pending_attachments)
-        model_user_text = format_user_text_with_attachments(display_user_text, attachment_context)
         prior_message_count = self.repository.count_messages(self.current_session_id)
         prior_messages = self.repository.get_recent_messages(
             self.current_session_id,
@@ -498,17 +510,18 @@ class MainWindow(QMainWindow):
         )
         self.input_edit.clear()
         self._append_block('You', display_user_text)
-        attachment_summary = self._pending_attachment_summary()
-        if attachment_summary:
-            self._append_block('System', f'Attached files:\n{attachment_summary}')
+        if used_attachment_filenames:
+            self._append_block('System', f'Using attached files:\n{self._attached_file_summary()}')
         if was_limited:
             self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
-        attachment_filenames = [attachment['filename'] for attachment in self._pending_attachments]
         self.repository.add_message(self.current_session_id, 'user', display_user_text)
-        self._set_new_session_title(self.current_session_id, display_user_text, attachment_filenames)
+        if used_attachment_filenames:
+            title_text = use_file_instruction or DEFAULT_ATTACHMENT_PROMPT
+        else:
+            title_text = display_user_text
+        self._set_new_session_title(self.current_session_id, title_text, used_attachment_filenames)
         self._reload_sessions()
         self._select_session_in_list(self.current_session_id)
-        self._clear_pending_attachments()
         self._generation_stop_requested = False
         self._set_busy(True, 'Generating response...')
         self._start_worker(model_prompt)
@@ -533,6 +546,19 @@ class MainWindow(QMainWindow):
         self._reload_sessions()
         self._select_session_in_list(self.current_session_id)
         return True
+
+    def _append_local_tool_error(self, display_user_text: str, error_text: str) -> None:
+        if self.current_session_id is None:
+            self.on_new_chat()
+        assert self.current_session_id is not None
+        result = f"Tool error: {error_text}"
+        self._append_block('You', display_user_text)
+        self._append_block('Tool', result)
+        self.repository.add_message(self.current_session_id, 'user', display_user_text)
+        self.repository.add_message(self.current_session_id, 'tool', result)
+        self._set_status('Tool error')
+        self._reload_sessions()
+        self._select_session_in_list(self.current_session_id)
 
     @Slot()
     def on_stop_generation(self) -> None:
@@ -657,8 +683,14 @@ class MainWindow(QMainWindow):
         self.test_connection_btn.setDisabled(busy)
         self.save_settings_btn.setDisabled(busy)
         self.attach_file_btn.setDisabled(busy)
-        self.clear_attachments_btn.setDisabled(busy or not self._pending_attachments)
+        self.remove_attachment_btn.setDisabled(busy or self.attachment_list.currentRow() < 0)
+        self.clear_attachments_btn.setDisabled(busy or not self._attached_file_paths)
         self._set_status(status_text)
+
+    @Slot(int)
+    def _on_attachment_selection_changed(self, row: int) -> None:
+        busy = self._worker_thread is not None and self._worker_thread.isRunning()
+        self.remove_attachment_btn.setDisabled(busy or row < 0)
 
     @Slot(QListWidgetItem)
     def _on_session_selected(self, item: QListWidgetItem) -> None:
@@ -687,28 +719,38 @@ class MainWindow(QMainWindow):
     def _clear_view_only(self) -> None:
         self.chat_view.clear()
 
-    def _pending_attachment_summary(self) -> str:
+    def _attached_filenames(self) -> list[str]:
+        return [Path(path).name for path in self._attached_file_paths]
+
+    def _attached_file_summary(self) -> str:
         lines: list[str] = []
-        for attachment in self._pending_attachments:
-            filename = attachment['filename']
-            file_type = attachment['file_type']
-            char_count = len(attachment.get('extracted_text', ''))
-            lines.append(f'- {filename} ({file_type}, {char_count} chars)')
+        for path in self._attached_file_paths:
+            file_path = Path(path)
+            file_type = file_path.suffix.lower().lstrip(".") or "file"
+            lines.append(f'- {file_path.name} ({file_type})')
         return '\n'.join(lines)
 
     def _refresh_attachment_list(self) -> None:
         self.attachment_list.clear()
-        for attachment in self._pending_attachments:
-            filename = attachment['filename']
-            file_type = attachment['file_type']
-            char_count = len(attachment.get('extracted_text', ''))
-            self.attachment_list.addItem(f'{filename} ({file_type}, {char_count} chars)')
-        has_attachments = bool(self._pending_attachments)
-        self.attachment_list.setVisible(has_attachments)
+        for path in self._attached_file_paths:
+            file_path = Path(path)
+            file_type = file_path.suffix.lower().lstrip(".") or "file"
+            item = QListWidgetItem(f'{file_path.name} ({file_type})')
+            item.setToolTip(path)
+            self.attachment_list.addItem(item)
+        has_attachments = bool(self._attached_file_paths)
+        self.remove_attachment_btn.setDisabled(not has_attachments or self.attachment_list.currentRow() < 0)
         self.clear_attachments_btn.setDisabled(not has_attachments)
 
-    def _clear_pending_attachments(self) -> None:
-        self._pending_attachments.clear()
+    def _remove_selected_attachment(self) -> None:
+        row = self.attachment_list.currentRow()
+        if row < 0:
+            return
+        del self._attached_file_paths[row]
+        self._refresh_attachment_list()
+
+    def _clear_attached_files(self) -> None:
+        self._attached_file_paths.clear()
         self._refresh_attachment_list()
 
     def _append_block(self, role: str, text: str) -> None:
