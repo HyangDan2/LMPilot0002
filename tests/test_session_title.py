@@ -1,6 +1,11 @@
 import unittest
 
-from src.gemma_console_gui.session_title import DEFAULT_SESSION_TITLE, derive_session_title
+from src.gemma_console_gui.session_title import (
+    DEFAULT_ATTACHMENT_PROMPT,
+    DEFAULT_SESSION_TITLE,
+    derive_session_title,
+    derive_session_title_from_input,
+)
 
 
 class SessionTitleTests(unittest.TestCase):
@@ -18,6 +23,18 @@ class SessionTitleTests(unittest.TestCase):
 
         self.assertLessEqual(len(title), 18)
         self.assertTrue(title.startswith("word word word"))
+
+    def test_derive_session_title_from_attachment_only_input(self) -> None:
+        self.assertEqual(
+            derive_session_title_from_input(DEFAULT_ATTACHMENT_PROMPT, ["report.md"]),
+            "Review report md",
+        )
+
+    def test_derive_session_title_from_multiple_attachments(self) -> None:
+        self.assertEqual(
+            derive_session_title_from_input("", ["report.md", "notes.txt", "data.json"]),
+            "Review report md and 2 more files",
+        )
 
 
 if __name__ == "__main__":

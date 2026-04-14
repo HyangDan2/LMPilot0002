@@ -27,6 +27,9 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 * 🧮 Local tool command
 
   * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
+* 📎 File attachments
+
+  * Attach text, code, document, and image files to the next prompt
 
 ---
 
@@ -153,6 +156,18 @@ python run.py --config config.yaml
 
   Tools are registered as dictionaries under `src/tools`. Each registry entry includes a name, description, parameter metadata, an OpenAI-compatible schema stub, and a handler. This keeps the current manual command path small while leaving a clean route to future model-driven tool calling.
 
+* **Attachments and images**
+
+  Use **Attach File** beside the prompt controls to add file contents to the next model request. The chat view shows a compact attached-file summary, while extracted text is included in the prompt context.
+
+  Supported file types:
+
+  ```text
+  .txt .md .json .yaml .yml .csv .py .log .pdf .docx .png .jpg .jpeg .bmp .webp
+  ```
+
+  Plain text files are read as UTF-8 first, with fallback decoding for common local encodings. PDF extraction uses `pypdf`; DOCX extraction uses `python-docx`. Images use `Pillow` for metadata and a local heuristic caption, with OCR attempted through `pytesseract` or the native `tesseract` command when available. Unsupported or unreadable files show a GUI warning and are not attached.
+
 Create and modify local settings in:
 
 ```bash
@@ -183,6 +198,10 @@ GUI (PySide6)
    ├── Local Tools
    │      ├── dict-based registry in src/tools
    │      └── calculator command (/calc)
+   │
+   ├── Attachments
+   │      ├── text/PDF/DOCX/image extraction
+   │      └── prompt-time file context
    │
    └── Text Processing
           ├── ANSI strip

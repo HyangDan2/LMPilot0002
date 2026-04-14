@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -27,11 +28,18 @@ from PySide6.QtWidgets import (
 
 from src.tools import ToolError, run_tool_command
 
+from .attachment_handler import (
+    AttachmentError,
+    SUPPORTED_EXTENSIONS,
+    extract_text_from_file,
+    format_attachment_context,
+    format_user_text_with_attachments,
+)
 from .config import AppConfig, save_connection_settings
 from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
 from .llm_client import ChatStreamChunk, OpenAIConnectionSettings
-from .session_title import DEFAULT_SESSION_TITLE, derive_session_title
+from .session_title import DEFAULT_ATTACHMENT_PROMPT, DEFAULT_SESSION_TITLE, derive_session_title_from_input
 from .token_handler import (
     ModelPrompt,
     build_memory_context,
@@ -141,7 +149,7 @@ class MainWindow(QMainWindow):
         self._generation_stop_requested = False
         self._streaming_assistant_started = False
         self._reasoning_placeholder_start: int | None = None
-        self._pending_title_text: str | None = None
+        self._pending_attachments: list[dict[str, str]] = []
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -155,6 +163,17 @@ class MainWindow(QMainWindow):
         self.input_edit = QTextEdit()
         self.input_edit.setPlaceholderText('Type your message here...')
         self.input_edit.setFixedHeight(120)
+
+        self.attachment_list = QListWidget()
+        self.attachment_list.setMaximumHeight(90)
+        self.attachment_list.setVisible(False)
+
+        self.attach_file_btn = QPushButton('Attach File')
+        self.attach_file_btn.clicked.connect(self.on_attach_files)
+
+        self.clear_attachments_btn = QPushButton('Clear Attachments')
+        self.clear_attachments_btn.clicked.connect(self._clear_pending_attachments)
+        self.clear_attachments_btn.setDisabled(True)
 
         self.send_btn = QPushButton('Send')
         self.send_btn.clicked.connect(self.on_send)
@@ -211,9 +230,12 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.chat_view, stretch=1)
         right_layout.addWidget(QLabel('Input'))
         right_layout.addWidget(self.input_edit)
+        right_layout.addWidget(self.attachment_list)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        button_row.addWidget(self.attach_file_btn)
+        button_row.addWidget(self.clear_attachments_btn)
         button_row.addWidget(self.clear_view_btn)
         button_row.addWidget(self.stop_btn)
         button_row.addWidget(self.send_btn)
@@ -385,14 +407,51 @@ class MainWindow(QMainWindow):
                 break
 
     @Slot()
+    def on_attach_files(self) -> None:
+        extensions = ' '.join(f'*{extension}' for extension in sorted(SUPPORTED_EXTENSIONS))
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            'Attach Files',
+            '',
+            f'Supported files ({extensions});;All files (*)',
+        )
+        if not files:
+            return
+
+        existing_paths = {attachment['path'] for attachment in self._pending_attachments}
+        failures: list[str] = []
+        for path in files:
+            try:
+                attachment = extract_text_from_file(path)
+            except AttachmentError as exc:
+                failures.append(str(exc))
+                continue
+            if attachment.path in existing_paths:
+                continue
+            self._pending_attachments.append(
+                {
+                    'filename': attachment.filename,
+                    'path': attachment.path,
+                    'file_type': attachment.file_type,
+                    'extracted_text': attachment.extracted_text,
+                }
+            )
+            existing_paths.add(attachment.path)
+
+        self._refresh_attachment_list()
+        if failures:
+            QMessageBox.warning(self, 'Attach File', '\n'.join(failures))
+
+    @Slot()
     def on_send(self) -> None:
         user_text = self.input_edit.toPlainText().strip()
-        if not user_text:
+        if not user_text and not self._pending_attachments:
             return
-        display_user_text = normalize_prompt_text(user_text)
+        normalized_user_text = normalize_prompt_text(user_text) if user_text else ''
+        display_user_text = normalized_user_text or DEFAULT_ATTACHMENT_PROMPT
         if not display_user_text:
             return
-        if self._try_handle_tool_command(display_user_text):
+        if not self._pending_attachments and self._try_handle_tool_command(display_user_text):
             self.input_edit.clear()
             return
 
@@ -409,6 +468,8 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
 
         assert self.current_session_id is not None
+        attachment_context = format_attachment_context(self._pending_attachments)
+        model_user_text = format_user_text_with_attachments(display_user_text, attachment_context)
         prior_message_count = self.repository.count_messages(self.current_session_id)
         prior_messages = self.repository.get_recent_messages(
             self.current_session_id,
@@ -424,23 +485,30 @@ class MainWindow(QMainWindow):
         )
         model_prompt = build_model_prompt_request(
             prior_messages,
-            display_user_text,
+            model_user_text,
             max_prompt_tokens,
             self.app_config.max_prompt_chars,
             self.app_config.system_prompt,
             memory_context,
         )
         was_limited = (
-            display_user_text != user_text
+            (bool(user_text) and display_user_text != user_text)
             or model_prompt.was_limited
             or prior_message_count > len(prior_messages)
         )
         self.input_edit.clear()
         self._append_block('You', display_user_text)
+        attachment_summary = self._pending_attachment_summary()
+        if attachment_summary:
+            self._append_block('System', f'Attached files:\n{attachment_summary}')
         if was_limited:
             self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
+        attachment_filenames = [attachment['filename'] for attachment in self._pending_attachments]
         self.repository.add_message(self.current_session_id, 'user', display_user_text)
-        self._pending_title_text = display_user_text if prior_message_count == 0 else None
+        self._set_new_session_title(self.current_session_id, display_user_text, attachment_filenames)
+        self._reload_sessions()
+        self._select_session_in_list(self.current_session_id)
+        self._clear_pending_attachments()
         self._generation_stop_requested = False
         self._set_busy(True, 'Generating response...')
         self._start_worker(model_prompt)
@@ -460,7 +528,7 @@ class MainWindow(QMainWindow):
         self.repository.add_message(self.current_session_id, 'user', display_user_text)
         self.repository.add_message(self.current_session_id, 'tool', result)
         if self.repository.get_session_title(self.current_session_id) == DEFAULT_SESSION_TITLE:
-            self.repository.update_session_title(self.current_session_id, derive_session_title(display_user_text))
+            self._set_new_session_title(self.current_session_id, display_user_text)
         self._set_status('Tool complete')
         self._reload_sessions()
         self._select_session_in_list(self.current_session_id)
@@ -522,20 +590,17 @@ class MainWindow(QMainWindow):
             self._finish_stream_block()
             self._append_block('System', 'Generation stopped.')
             self._generation_stop_requested = False
-            self._pending_title_text = None
             self._set_busy(False, 'Idle')
             return
 
         self._clear_reasoning_placeholder()
         if not answer.strip():
             self._append_block('System', 'Backend returned no final assistant answer.')
-            self._pending_title_text = None
             self._set_busy(False, 'Error')
             return
 
         if self.current_session_id is not None:
             self.repository.add_message(self.current_session_id, 'assistant', answer)
-            self._maybe_update_session_title(self.current_session_id, answer)
         if was_streamed or self._streaming_assistant_started:
             self._finish_stream_block()
         else:
@@ -552,14 +617,12 @@ class MainWindow(QMainWindow):
             self._finish_stream_block()
             self._append_block('System', 'Generation stopped.')
             self._generation_stop_requested = False
-            self._pending_title_text = None
             self._set_busy(False, 'Idle')
             return
 
         self._clear_reasoning_placeholder()
         self._finish_stream_block()
         self._append_block('System', f'Error: {error_text}')
-        self._pending_title_text = None
         self._set_busy(False, 'Error')
 
     @Slot()
@@ -573,16 +636,18 @@ class MainWindow(QMainWindow):
         self._streaming_assistant_started = False
         self._reasoning_placeholder_start = None
 
-    def _maybe_update_session_title(self, session_id: int, answer: str) -> None:
-        if self._pending_title_text is None:
-            return
+    def _set_new_session_title(
+        self,
+        session_id: int,
+        user_text: str,
+        attachment_filenames: list[str] | None = None,
+    ) -> None:
         current_title = self.repository.get_session_title(session_id)
         if current_title != DEFAULT_SESSION_TITLE:
-            self._pending_title_text = None
             return
-        title_source = self._pending_title_text or answer
-        self.repository.update_session_title(session_id, derive_session_title(title_source))
-        self._pending_title_text = None
+        title = derive_session_title_from_input(user_text, attachment_filenames)
+        if title != DEFAULT_SESSION_TITLE:
+            self.repository.update_session_title(session_id, title)
 
     def _set_busy(self, busy: bool, status_text: str) -> None:
         self.send_btn.setDisabled(busy)
@@ -591,6 +656,8 @@ class MainWindow(QMainWindow):
         self.session_list.setDisabled(busy)
         self.test_connection_btn.setDisabled(busy)
         self.save_settings_btn.setDisabled(busy)
+        self.attach_file_btn.setDisabled(busy)
+        self.clear_attachments_btn.setDisabled(busy or not self._pending_attachments)
         self._set_status(status_text)
 
     @Slot(QListWidgetItem)
@@ -619,6 +686,30 @@ class MainWindow(QMainWindow):
 
     def _clear_view_only(self) -> None:
         self.chat_view.clear()
+
+    def _pending_attachment_summary(self) -> str:
+        lines: list[str] = []
+        for attachment in self._pending_attachments:
+            filename = attachment['filename']
+            file_type = attachment['file_type']
+            char_count = len(attachment.get('extracted_text', ''))
+            lines.append(f'- {filename} ({file_type}, {char_count} chars)')
+        return '\n'.join(lines)
+
+    def _refresh_attachment_list(self) -> None:
+        self.attachment_list.clear()
+        for attachment in self._pending_attachments:
+            filename = attachment['filename']
+            file_type = attachment['file_type']
+            char_count = len(attachment.get('extracted_text', ''))
+            self.attachment_list.addItem(f'{filename} ({file_type}, {char_count} chars)')
+        has_attachments = bool(self._pending_attachments)
+        self.attachment_list.setVisible(has_attachments)
+        self.clear_attachments_btn.setDisabled(not has_attachments)
+
+    def _clear_pending_attachments(self) -> None:
+        self._pending_attachments.clear()
+        self._refresh_attachment_list()
 
     def _append_block(self, role: str, text: str) -> None:
         block = self._format_display_block(role, text)
