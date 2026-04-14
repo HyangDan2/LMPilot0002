@@ -12,6 +12,11 @@ from urllib.parse import urlparse
 
 import pexpect
 
+from src.core.pipeline import execute_tools, finalize_answer, parse_response, prepare_messages, run_pipeline
+from src.core.providers import OpenAICompatibleProvider
+from src.core.state import RunState
+from src.core.tools import ToolRegistry, build_default_tool_registry
+
 from .llm_client import ChatStreamChunk, LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
 from .token_handler import ModelPrompt, message_content_to_text
 
@@ -107,6 +112,8 @@ class OpenAICompatibleSession:
     def __init__(self, config: ConsoleConfig) -> None:
         self.config = config
         self._client = OpenAICompatibleClient(config.openai_settings())
+        self._tool_registry: ToolRegistry = build_default_tool_registry()
+        self.last_run_state: RunState | None = None
         self._started = False
 
     def start(self) -> None:
@@ -131,18 +138,14 @@ class OpenAICompatibleSession:
             self.start()
 
         messages = self._build_chat_messages(user_text)
+        state = self._run_model_pipeline(messages)
+        if state.error and self._is_reasoning_only_error(state.error):
+            state = self._run_model_pipeline(self._with_final_answer_retry_instruction(messages))
 
-        try:
-            answer = self._client.chat_completion(messages)
-        except LLMClientError as exc:
-            if self._is_reasoning_only_error(exc):
-                try:
-                    answer = self._client.chat_completion(self._with_final_answer_retry_instruction(messages))
-                except LLMClientError as retry_exc:
-                    raise ConsoleSessionError(str(retry_exc)) from retry_exc
-            else:
-                raise ConsoleSessionError(str(exc)) from exc
+        if state.error:
+            raise ConsoleSessionError(state.error)
 
+        answer = state.final_answer
         if not answer.strip():
             raise ConsoleSessionError("Model returned an empty response.")
         return answer
@@ -152,11 +155,17 @@ class OpenAICompatibleSession:
             self.start()
 
         messages = self._build_chat_messages(user_text)
+        provider = self._provider_adapter()
+        state = self._new_run_state(messages, provider, {"execute_model_tools": False, "streaming": True})
+        state = prepare_messages(state)
+        state.add_log(f"call_model:{provider.name}:{provider.model_name}:stream")
+        self.last_run_state = state
+        messages = state.messages
         emitted_final_text = False
         answer_parts: list[str] = []
 
         try:
-            for chunk in self._client.stream_chat_completion(messages):
+            for chunk in provider.stream_generate(messages):
                 if chunk.kind == "final" and chunk.text:
                     emitted_final_text = True
                     answer_parts.append(chunk.text)
@@ -172,6 +181,13 @@ class OpenAICompatibleSession:
 
         if not "".join(answer_parts).strip():
             raise ConsoleSessionError("Model returned an empty response.")
+        state.metadata["raw_model_output"] = "".join(answer_parts)
+        state = parse_response(state)
+        if not state.error:
+            state = execute_tools(state, self._tool_registry)
+        if not state.error:
+            state = finalize_answer(state)
+        self.last_run_state = state
 
     def _build_chat_messages(self, user_text: str | ModelPrompt) -> list[dict[str, Any]]:
         if isinstance(user_text, ModelPrompt):
@@ -185,8 +201,44 @@ class OpenAICompatibleSession:
             messages.insert(0, {"role": "system", "content": self.config.system_prompt})
         return messages
 
+    def _run_model_pipeline(self, messages: list[dict[str, Any]]) -> RunState:
+        provider = self._provider_adapter()
+        state = self._new_run_state(messages, provider, {"execute_model_tools": False})
+        self.last_run_state = run_pipeline(state, provider, self._tool_registry)
+        return self.last_run_state
+
+    def _provider_adapter(self) -> OpenAICompatibleProvider:
+        settings = getattr(self._client, "settings", None)
+        model_name = self.config.openai_model or getattr(settings, "model", "")
+        return OpenAICompatibleProvider(
+            self._client,
+            model_name=model_name,
+        )
+
+    def _new_run_state(
+        self,
+        messages: list[dict[str, Any]],
+        provider: OpenAICompatibleProvider,
+        metadata: dict[str, Any] | None = None,
+    ) -> RunState:
+        return RunState(
+            user_input=self._last_user_message_text(messages),
+            provider_name=provider.name,
+            model_name=provider.model_name,
+            system_prompt=self.config.system_prompt or "",
+            messages=[dict(message) for message in messages],
+            metadata=metadata or {},
+        )
+
     @staticmethod
-    def _is_reasoning_only_error(exc: LLMClientError) -> bool:
+    def _last_user_message_text(messages: list[dict[str, Any]]) -> str:
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                return message_content_to_text(message.get("content", "")).strip()
+        return ""
+
+    @staticmethod
+    def _is_reasoning_only_error(exc: LLMClientError | str) -> bool:
         return REASONING_ONLY_ERROR in str(exc)
 
     @staticmethod

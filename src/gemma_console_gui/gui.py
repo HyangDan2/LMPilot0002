@@ -111,7 +111,11 @@ class ChatWorker(QObject):
                     if chunk.kind == 'final':
                         answer_parts.append(chunk.text)
                     self.chunk.emit(chunk.kind, chunk.text)
-                self.finished.emit(''.join(answer_parts), True)
+                answer = ''.join(answer_parts)
+                last_state = getattr(self.console, 'last_run_state', None)
+                if last_state is not None and getattr(last_state, 'final_answer', ''):
+                    answer = last_state.final_answer
+                self.finished.emit(answer, True)
                 return
 
             answer = self.console.ask(self.prompt_text)

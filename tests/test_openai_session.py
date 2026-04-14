@@ -107,6 +107,32 @@ class OpenAICompatibleSessionTests(unittest.TestCase):
         )
         self.assertEqual(client.chat_completion_calls, 2)
 
+    def test_non_streaming_ask_uses_pipeline_and_structured_answer(self) -> None:
+        client = FakeOpenAIClient(
+            [],
+            chat_results=['{"action":"answer","answer":"structured answer"}'],
+        )
+        session = self.make_session(client)
+
+        self.assertEqual(session.ask("hello"), "structured answer")
+        self.assertIsNotNone(session.last_run_state)
+        assert session.last_run_state is not None
+        self.assertIn("call_model:openai-compatible:local-model", session.last_run_state.step_logs)
+
+    def test_streaming_path_records_run_state_and_structured_answer(self) -> None:
+        client = FakeOpenAIClient(
+            [ChatStreamChunk(kind="final", text='{"action":"answer","answer":"stream structured"}')],
+        )
+        session = self.make_session(client)
+
+        chunks = list(session.ask_stream("hello"))
+
+        self.assertEqual(chunks[0].text, '{"action":"answer","answer":"stream structured"}')
+        self.assertIsNotNone(session.last_run_state)
+        assert session.last_run_state is not None
+        self.assertEqual(session.last_run_state.final_answer, "stream structured")
+        self.assertIn("call_model:openai-compatible:local-model:stream", session.last_run_state.step_logs)
+
 
 if __name__ == "__main__":
     unittest.main()

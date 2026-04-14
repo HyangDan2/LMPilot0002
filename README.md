@@ -144,6 +144,18 @@ python run.py --config config.yaml
 
   The prompt builder uses a recent-message window instead of reprocessing the entire session on every send. The database also has a session summary table and a vector chunk store so future RAG flows can combine a rolling summary, retrieved memory, recent messages, and the current user prompt.
 
+* **Core execution pipeline**
+
+  The non-streaming model call path uses a lightweight core layer under `src/core`:
+
+  * `RunState` carries one execution's messages, provider/model names, parsed output, final answer, errors, and step logs.
+  * `run_pipeline(...)` runs explicit node-style steps: prepare messages, call model, parse response, execute explicit tools, and finalize the answer.
+  * `ToolRegistry` adapts the existing `src/tools` entries without introducing an autonomous agent loop.
+  * `OpenAICompatibleProvider` wraps the current OpenAI-compatible client behind a small `generate(messages, **kwargs) -> str` adapter.
+  * Structured JSON output is parsed through Pydantic when available, with graceful fallback to raw text for normal answers.
+
+  See `ARCHITECTURE.md` for the short architecture guide. The app does not use LangChain or LangGraph.
+
 * **Local tools**
 
   The first built-in local tool is a safe calculator command:
