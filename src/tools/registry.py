@@ -55,13 +55,13 @@ def _run_use_file(arguments: dict[str, Any]) -> str:
         raise ToolError(str(exc)) from exc
 
 
-def _run_image_analyze(arguments: dict[str, Any]) -> list[dict[str, Any]]:
+def _run_analyze_image(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     path = arguments.get("path")
     instruction = arguments.get("instruction", "")
     if not isinstance(path, str):
-        raise ToolError("image_analyze requires an image file path.")
+        raise ToolError("analyze_image requires an image file path.")
     if not isinstance(instruction, str):
-        raise ToolError("image_analyze instruction must be a string.")
+        raise ToolError("analyze_image instruction must be a string.")
     try:
         return build_image_analyze_content(path, instruction)
     except ImageAnalyzeError as exc:
@@ -133,8 +133,8 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "handler": _run_use_file,
     },
-    "image_analyze": {
-        "name": "image_analyze",
+    "analyze_image": {
+        "name": "analyze_image",
         "description": "Send one explicitly attached image to a vision-capable model with instructions.",
         "parameters": {
             "path": {
@@ -149,7 +149,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         "schema": {
             "type": "function",
             "function": {
-                "name": "image_analyze",
+                "name": "analyze_image",
                 "description": "Send one explicitly attached image to a vision-capable model with instructions.",
                 "parameters": {
                     "type": "object",
@@ -167,7 +167,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
                 },
             },
         },
-        "handler": _run_image_analyze,
+        "handler": _run_analyze_image,
     },
 }
 
@@ -216,8 +216,8 @@ def parse_use_file_command(command_text: str) -> AttachedFileCommand | None:
     return _parse_attached_file_command(command_text, "use_file")
 
 
-def parse_image_analyze_command(command_text: str) -> AttachedFileCommand | None:
-    return _parse_attached_file_command(command_text, "image_analyze")
+def parse_analyze_image_command(command_text: str) -> AttachedFileCommand | None:
+    return _parse_attached_file_command(command_text, "analyze_image")
 
 
 def select_attached_path(
@@ -273,19 +273,19 @@ def run_use_file_command(command_text: str, paths: list[str]) -> PromptToolResul
     return PromptToolResult(content=content, selected_path=selected_path, instruction=command.instruction)
 
 
-def run_image_analyze_command(command_text: str, paths: list[str]) -> PromptToolResult | None:
+def run_analyze_image_command(command_text: str, paths: list[str]) -> PromptToolResult | None:
     from .image_analyze import IMAGE_ANALYZE_EXTENSIONS
 
-    command = parse_image_analyze_command(command_text)
+    command = parse_analyze_image_command(command_text)
     if command is None:
         return None
     selected_path = select_attached_path(
         command.target,
         paths,
         allowed_extensions=IMAGE_ANALYZE_EXTENSIONS,
-        command_name="image_analyze",
+        command_name="analyze_image",
     )
-    content = run_tool("image_analyze", {"path": selected_path, "instruction": command.instruction})
+    content = run_tool("analyze_image", {"path": selected_path, "instruction": command.instruction})
     if not isinstance(content, list):
-        raise ToolError("image_analyze returned an invalid prompt.")
+        raise ToolError("analyze_image returned an invalid prompt.")
     return PromptToolResult(content=content, selected_path=selected_path, instruction=command.instruction)

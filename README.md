@@ -27,10 +27,13 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 * 🧮 Local tool command
 
   * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
-* 📎 File attachments
+* 📎 Folder attachments
 
-  * Attach reusable file paths, then call `/use_file filename instruction` when the model should read one file
-  * Call `/image_analyze filename instruction` to send an attached image to a vision-capable backend
+  * Attach a workspace folder, then call `/use_file filename instruction` when the model should read one file
+  * Call `/analyze_image filename instruction` to send an attached image to a vision-capable backend
+* 💾 Markdown export
+
+  * Use **Save Chat** to save the current session as a `.md` file
 
 ---
 
@@ -159,7 +162,7 @@ python run.py --config config.yaml
 
 * **Attachments and images**
 
-  Use **Attach File** in the left sidebar under **Sessions** to keep a reusable list of file paths. Files are not automatically included in every prompt. To use the selected attachments, type:
+  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files inside that folder. Files are not automatically included in every prompt. To use the selected attachments, type:
 
   ```text
   /use_file example.txt summarize this file
@@ -176,10 +179,10 @@ python run.py --config config.yaml
   For image-capable OpenAI-compatible backends, use:
 
   ```text
-  /image_analyze chart.png summarize the visible trend
+  /analyze_image chart.png summarize the visible trend
   ```
 
-  `/image_analyze` selects one attached image, sends it as a base64 data URL with the instruction text, and requires a vision-capable chat-completions backend. The completion fallback and CLI backend cannot receive image content.
+  `/analyze_image` selects one attached image, sends it as a base64 data URL with the instruction text, and requires a vision-capable chat-completions backend. The completion fallback and CLI backend cannot receive image content.
 
   Supported file types:
 
@@ -187,7 +190,11 @@ python run.py --config config.yaml
   .txt .md .json .yaml .yml .csv .py .log .pdf .docx .png .jpg .jpeg .bmp .webp
   ```
 
-  Plain text files are read as UTF-8 first, with fallback decoding for common local encodings. PDF extraction uses `pypdf`; DOCX extraction uses `python-docx`. Images use `Pillow` for metadata and a local heuristic caption, with OCR attempted through `pytesseract` or the native `tesseract` command when available. Unsupported or unreadable files show a GUI warning and are not attached.
+  Plain text files are read as UTF-8 first, with fallback decoding for common local encodings. PDF extraction uses `pypdf`; DOCX extraction uses `python-docx`. Images use `Pillow` for metadata and a local heuristic caption, with OCR attempted through `pytesseract` or the native `tesseract` command when available. Unsupported files in the selected folder are skipped; unreadable supported files show a GUI warning.
+
+* **Markdown export**
+
+  Use **Save Chat** next to **Clear View** to export the current session messages as Markdown. A file dialog lets you choose the output `.md` path.
 
 Create and modify local settings in:
 
@@ -223,7 +230,7 @@ GUI (PySide6)
    │
    ├── Attachments
    │      ├── text/PDF/DOCX/image extraction
-   │      └── explicit /use_file and /image_analyze prompt context
+   │      └── explicit /use_file and /analyze_image prompt context
    │
    └── Text Processing
           ├── ANSI strip

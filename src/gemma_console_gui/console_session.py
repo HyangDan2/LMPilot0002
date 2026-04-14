@@ -246,7 +246,7 @@ class LlamaServerSession:
         for mode, endpoint in self._endpoint_candidates():
             if mode == "completion" and self._prompt_has_structured_content(user_text):
                 raise ConsoleSessionError(
-                    "/image_analyze requires a chat-completions vision backend; "
+                    "/analyze_image requires a chat-completions vision backend; "
                     "the completion endpoint cannot receive image content."
                 )
             payload = (
@@ -493,7 +493,7 @@ class LlamaConsoleSession:
         if isinstance(user_text, ModelPrompt):
             if LlamaServerSession._prompt_has_structured_content(user_text):
                 raise ConsoleSessionError(
-                    "/image_analyze requires an OpenAI-compatible or chat-completions vision backend."
+                    "/analyze_image requires an OpenAI-compatible or chat-completions vision backend."
                 )
             user_text = user_text.completion_prompt
 

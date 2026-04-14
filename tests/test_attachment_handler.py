@@ -7,6 +7,7 @@ from src.gemma_console_gui.attachment_handler import (
     extract_text_from_file,
     format_attachment_context,
     format_user_text_with_attachments,
+    list_supported_files_in_folder,
     validate_attachment_path,
 )
 
@@ -34,6 +35,20 @@ class AttachmentHandlerTests(unittest.TestCase):
         path.write_text("hello attachment", encoding="utf-8")
 
         self.assertEqual(validate_attachment_path(str(path)), path.resolve())
+
+    def test_list_supported_files_in_folder_finds_nested_supported_files(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        nested = root / "workspace" / "docs"
+        nested.mkdir(parents=True)
+        note = nested / "note.txt"
+        note.write_text("hello", encoding="utf-8")
+        ignored = nested / "archive.bin"
+        ignored.write_bytes(b"data")
+        generated = root / "workspace" / "__pycache__" / "generated.py"
+        generated.parent.mkdir()
+        generated.write_text("skip me", encoding="utf-8")
+
+        self.assertEqual(list_supported_files_in_folder(str(root)), [note.resolve()])
 
     def test_format_user_text_with_attachments(self) -> None:
         context = format_attachment_context(
