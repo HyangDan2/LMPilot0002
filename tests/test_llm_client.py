@@ -107,13 +107,36 @@ class OpenAICompatibleClientTests(unittest.TestCase):
 
         chunks = list(client.stream_chat_completion([{"role": "user", "content": "Hi"}]))
 
-        self.assertEqual(chunks, ["hello ", "world"])
+        self.assertEqual([(chunk.kind, chunk.text) for chunk in chunks], [("final", "hello "), ("final", "world")])
         request = FakeConnection.requests[0]
         self.assertEqual(request["method"], "POST")
         self.assertEqual(request["path"], "/v1/chat/completions")
         self.assertTrue(request["body"]["stream"])
 
-    def test_stream_chat_completion_accepts_reasoning_delta(self) -> None:
+    def test_stream_chat_completion_reports_reasoning_without_text(self) -> None:
+        FakeConnection.responses.append(
+            FakeStreamingResponse(
+                200,
+                [
+                    'data: {"choices":[{"delta":{"reasoning":"thinking"}}]}\n',
+                    'data: {"choices":[{"delta":{"content":"final answer"}}]}\n',
+                    "data: [DONE]\n",
+                ],
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(
+            [
+                (chunk.kind, chunk.text)
+                for chunk in client.stream_chat_completion([{"role": "user", "content": "Hi"}])
+            ],
+            [("reasoning", ""), ("final", "final answer")],
+        )
+
+    def test_stream_chat_completion_errors_on_reasoning_only(self) -> None:
         FakeConnection.responses.append(
             FakeStreamingResponse(
                 200,
@@ -127,10 +150,10 @@ class OpenAICompatibleClientTests(unittest.TestCase):
             OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
         )
 
-        self.assertEqual(
-            list(client.stream_chat_completion([{"role": "user", "content": "Hi"}])),
-            ["thinking"],
-        )
+        with self.assertRaises(LLMClientError) as raised:
+            list(client.stream_chat_completion([{"role": "user", "content": "Hi"}]))
+
+        self.assertIn("reasoning only", str(raised.exception))
 
     def test_chat_completion_accepts_message_content_blocks(self) -> None:
         FakeConnection.responses.append(
@@ -201,7 +224,7 @@ class OpenAICompatibleClientTests(unittest.TestCase):
 
         self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "fallback text")
 
-    def test_chat_completion_accepts_message_reasoning_fallback(self) -> None:
+    def test_chat_completion_errors_on_message_reasoning_only(self) -> None:
         FakeConnection.responses.append(
             FakeResponse(
                 200,
@@ -228,10 +251,10 @@ class OpenAICompatibleClientTests(unittest.TestCase):
             OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
         )
 
-        self.assertEqual(
-            client.chat_completion([{"role": "user", "content": "Hi"}]),
-            "Thinking Process:\n\n1. Use the available text.",
-        )
+        with self.assertRaises(LLMClientError) as raised:
+            client.chat_completion([{"role": "user", "content": "Hi"}])
+
+        self.assertIn("reasoning only", str(raised.exception))
 
     def test_chat_completion_tries_fallbacks_after_empty_content(self) -> None:
         FakeConnection.responses.append(

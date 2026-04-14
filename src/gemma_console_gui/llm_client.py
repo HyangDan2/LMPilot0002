@@ -12,7 +12,15 @@ class LLMClientError(Exception):
     pass
 
 
-TEXT_FIELD_FALLBACKS = ("text", "output_text", "reasoning", "reasoning_content")
+FINAL_TEXT_FIELD_FALLBACKS = ("text", "output_text")
+CHOICE_FINAL_TEXT_FIELDS = ("content", "output_text", "response", "completion")
+REASONING_TEXT_FIELDS = ("reasoning", "reasoning_content")
+
+
+@dataclass(frozen=True)
+class ChatStreamChunk:
+    kind: str
+    text: str = ""
 
 
 @dataclass
@@ -45,7 +53,7 @@ class OpenAICompatibleClient:
         data = self._request_json("POST", "/chat/completions", payload)
         return self._extract_chat_text(data)
 
-    def stream_chat_completion(self, messages: list[dict[str, str]]) -> Iterator[str]:
+    def stream_chat_completion(self, messages: list[dict[str, str]]) -> Iterator[ChatStreamChunk]:
         self._validate_for_chat()
         payload: dict[str, Any] = {
             "model": self.settings.model.strip(),
@@ -254,9 +262,16 @@ class OpenAICompatibleClient:
                 "Malformed chat response: choice is not an object. "
                 f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
             )
-        text = OpenAICompatibleClient._extract_choice_text(first_choice, strip=True)
+        text = OpenAICompatibleClient._extract_choice_text(
+            first_choice,
+            strip=True,
+            include_reasoning=False,
+        )
         if text:
             return text
+        reasoning = OpenAICompatibleClient._extract_reasoning_text(first_choice, strip=True)
+        if reasoning:
+            raise LLMClientError("Backend returned reasoning only, but no final assistant answer.")
         raise LLMClientError(
             "Malformed chat response: missing assistant content."
             f"{OpenAICompatibleClient._finish_reason_text(first_choice)} "
@@ -264,8 +279,9 @@ class OpenAICompatibleClient:
         )
 
     @staticmethod
-    def _extract_stream_chat_text(events: Iterator[dict[str, Any]]) -> Iterator[str]:
-        emitted_text = False
+    def _extract_stream_chat_text(events: Iterator[dict[str, Any]]) -> Iterator[ChatStreamChunk]:
+        emitted_final_text = False
+        saw_reasoning = False
         last_choice: Any = None
         for event in events:
             choices = event.get("choices")
@@ -278,19 +294,35 @@ class OpenAICompatibleClient:
                     "Malformed streaming chat response: choice is not an object. "
                     f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
                 )
-            text = OpenAICompatibleClient._extract_choice_text(first_choice, strip=False)
+            text = OpenAICompatibleClient._extract_choice_text(
+                first_choice,
+                strip=False,
+                include_reasoning=False,
+            )
             if text is not None and text != "":
-                emitted_text = True
-                yield text
+                emitted_final_text = True
+                yield ChatStreamChunk(kind="final", text=text)
+                continue
 
-        if not emitted_text:
+            reasoning = OpenAICompatibleClient._extract_reasoning_text(first_choice, strip=False)
+            if reasoning is not None and reasoning != "":
+                saw_reasoning = True
+                yield ChatStreamChunk(kind="reasoning")
+
+        if not emitted_final_text and saw_reasoning:
+            raise LLMClientError("Backend returned reasoning only, but no final assistant answer.")
+        if not emitted_final_text:
             raise LLMClientError(
                 "Malformed streaming chat response: missing assistant content. "
                 f"First choice: {OpenAICompatibleClient._preview_payload(last_choice)}"
             )
 
     @staticmethod
-    def _extract_choice_text(first_choice: dict[str, Any], strip: bool) -> str | None:
+    def _extract_choice_text(
+        first_choice: dict[str, Any],
+        strip: bool,
+        include_reasoning: bool = False,
+    ) -> str | None:
         message = first_choice.get("message")
         if isinstance(message, dict):
             block_text = OpenAICompatibleClient._extract_text_value(message.get("content"), strip=strip)
@@ -304,19 +336,43 @@ class OpenAICompatibleClient:
             block_text = OpenAICompatibleClient._extract_text_value(delta.get("content"), strip=strip)
             if OpenAICompatibleClient._has_text(block_text, strip=strip):
                 return block_text
-            for key in TEXT_FIELD_FALLBACKS:
+            for key in FINAL_TEXT_FIELD_FALLBACKS:
                 block_text = OpenAICompatibleClient._extract_text_value(delta.get(key), strip=strip)
                 if OpenAICompatibleClient._has_text(block_text, strip=strip):
                     return block_text
         if isinstance(message, dict):
-            for key in TEXT_FIELD_FALLBACKS:
+            for key in FINAL_TEXT_FIELD_FALLBACKS:
                 block_text = OpenAICompatibleClient._extract_text_value(message.get(key), strip=strip)
                 if OpenAICompatibleClient._has_text(block_text, strip=strip):
                     return block_text
-        for key in ("content", "output_text", "response", "completion"):
+        for key in CHOICE_FINAL_TEXT_FIELDS:
             block_text = OpenAICompatibleClient._extract_text_value(first_choice.get(key), strip=strip)
             if OpenAICompatibleClient._has_text(block_text, strip=strip):
                 return block_text
+        if include_reasoning:
+            return OpenAICompatibleClient._extract_reasoning_text(first_choice, strip=strip)
+        return None
+
+    @staticmethod
+    def _extract_reasoning_text(first_choice: dict[str, Any], strip: bool) -> str | None:
+        delta = first_choice.get("delta")
+        if isinstance(delta, dict):
+            for key in REASONING_TEXT_FIELDS:
+                reasoning = OpenAICompatibleClient._extract_text_value(delta.get(key), strip=strip)
+                if OpenAICompatibleClient._has_text(reasoning, strip=strip):
+                    return reasoning
+
+        message = first_choice.get("message")
+        if isinstance(message, dict):
+            for key in REASONING_TEXT_FIELDS:
+                reasoning = OpenAICompatibleClient._extract_text_value(message.get(key), strip=strip)
+                if OpenAICompatibleClient._has_text(reasoning, strip=strip):
+                    return reasoning
+
+        for key in REASONING_TEXT_FIELDS:
+            reasoning = OpenAICompatibleClient._extract_text_value(first_choice.get(key), strip=strip)
+            if OpenAICompatibleClient._has_text(reasoning, strip=strip):
+                return reasoning
         return None
 
     @staticmethod

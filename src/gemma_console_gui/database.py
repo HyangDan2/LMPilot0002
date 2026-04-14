@@ -67,6 +67,20 @@ class ChatRepository:
             conn.commit()
             return int(cur.lastrowid)
 
+    def get_session_title(self, session_id: int) -> str:
+        with self._connect() as conn:
+            cur = conn.execute("SELECT title FROM sessions WHERE id = ?", (session_id,))
+            row = cur.fetchone()
+            return str(row["title"]) if row is not None else ""
+
+    def update_session_title(self, session_id: int, title: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (title, session_id),
+            )
+            conn.commit()
+
     def add_message(self, session_id: int, role: str, content: str) -> None:
         with self._connect() as conn:
             conn.execute(

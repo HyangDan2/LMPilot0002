@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
 from .config import AppConfig, save_connection_settings
 from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
-from .llm_client import OpenAIConnectionSettings
+from .llm_client import ChatStreamChunk, OpenAIConnectionSettings
+from .session_title import DEFAULT_SESSION_TITLE, derive_session_title
 from .token_handler import (
     ModelPrompt,
     build_memory_context,
@@ -67,14 +68,14 @@ class ChatSession(Protocol):
     def stop(self, force: bool = False) -> None: ...
     def stop_generation(self) -> None: ...
     def ask(self, prompt_text: str | ModelPrompt) -> str: ...
-    def ask_stream(self, prompt_text: str | ModelPrompt) -> Iterator[str]: ...
+    def ask_stream(self, prompt_text: str | ModelPrompt) -> Iterator[ChatStreamChunk]: ...
     def update_connection_settings(self, settings: OpenAIConnectionSettings) -> None: ...
     def test_connection(self) -> str: ...
     def list_models(self) -> list[str]: ...
 
 
 class ChatWorker(QObject):
-    chunk = Signal(str)
+    chunk = Signal(str, str)
     finished = Signal(str, bool)
     error = Signal(str)
 
@@ -90,8 +91,9 @@ class ChatWorker(QObject):
             if callable(stream_answer):
                 answer_parts: list[str] = []
                 for chunk in stream_answer(self.prompt_text):
-                    answer_parts.append(chunk)
-                    self.chunk.emit(chunk)
+                    if chunk.kind == 'final':
+                        answer_parts.append(chunk.text)
+                    self.chunk.emit(chunk.kind, chunk.text)
                 self.finished.emit(''.join(answer_parts), True)
                 return
 
@@ -136,6 +138,8 @@ class MainWindow(QMainWindow):
         self._connection_test_worker: ConnectionTestWorker | None = None
         self._generation_stop_requested = False
         self._streaming_assistant_started = False
+        self._reasoning_placeholder_start: int | None = None
+        self._pending_title_text: str | None = None
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -364,7 +368,7 @@ class MainWindow(QMainWindow):
             self.session_list.addItem(item)
 
     def on_new_chat(self) -> None:
-        self.current_session_id = self.repository.create_session('New Chat')
+        self.current_session_id = self.repository.create_session(DEFAULT_SESSION_TITLE)
         self._reload_sessions()
         self._select_session_in_list(self.current_session_id)
         self.chat_view.clear()
@@ -431,6 +435,7 @@ class MainWindow(QMainWindow):
         if was_limited:
             self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
         self.repository.add_message(self.current_session_id, 'user', display_user_text)
+        self._pending_title_text = display_user_text if prior_message_count == 0 else None
         self._generation_stop_requested = False
         self._set_busy(True, 'Generating response...')
         self._start_worker(model_prompt)
@@ -469,26 +474,42 @@ class MainWindow(QMainWindow):
         if self._worker_thread is not None:
             self._worker_thread.quit()
 
-    @Slot(str)
-    def _on_generation_chunk(self, chunk: str) -> None:
-        if not chunk:
+    @Slot(str, str)
+    def _on_generation_chunk(self, kind: str, chunk: str) -> None:
+        if kind == 'reasoning':
+            self._show_reasoning_placeholder()
+            self._set_status('Reasoning...')
             return
+        if kind != 'final' or not chunk:
+            return
+        self._clear_reasoning_placeholder()
         if not self._streaming_assistant_started:
             self._append_block_start('Assistant')
             self._streaming_assistant_started = True
         self._append_stream_text(chunk)
+        self._set_status('Generating response...')
 
     @Slot(str, bool)
     def _on_generation_success(self, answer: str, was_streamed: bool) -> None:
         if self._generation_stop_requested:
+            self._clear_reasoning_placeholder()
             self._finish_stream_block()
             self._append_block('System', 'Generation stopped.')
             self._generation_stop_requested = False
+            self._pending_title_text = None
             self._set_busy(False, 'Idle')
+            return
+
+        self._clear_reasoning_placeholder()
+        if not answer.strip():
+            self._append_block('System', 'Backend returned no final assistant answer.')
+            self._pending_title_text = None
+            self._set_busy(False, 'Error')
             return
 
         if self.current_session_id is not None:
             self.repository.add_message(self.current_session_id, 'assistant', answer)
+            self._maybe_update_session_title(self.current_session_id, answer)
         if was_streamed or self._streaming_assistant_started:
             self._finish_stream_block()
         else:
@@ -501,14 +522,18 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _on_generation_error(self, error_text: str) -> None:
         if self._generation_stop_requested:
+            self._clear_reasoning_placeholder()
             self._finish_stream_block()
             self._append_block('System', 'Generation stopped.')
             self._generation_stop_requested = False
+            self._pending_title_text = None
             self._set_busy(False, 'Idle')
             return
 
+        self._clear_reasoning_placeholder()
         self._finish_stream_block()
         self._append_block('System', f'Error: {error_text}')
+        self._pending_title_text = None
         self._set_busy(False, 'Error')
 
     @Slot()
@@ -520,6 +545,18 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._worker_thread = None
         self._streaming_assistant_started = False
+        self._reasoning_placeholder_start = None
+
+    def _maybe_update_session_title(self, session_id: int, answer: str) -> None:
+        if self._pending_title_text is None:
+            return
+        current_title = self.repository.get_session_title(session_id)
+        if current_title != DEFAULT_SESSION_TITLE:
+            self._pending_title_text = None
+            return
+        title_source = self._pending_title_text or answer
+        self.repository.update_session_title(session_id, derive_session_title(title_source))
+        self._pending_title_text = None
 
     def _set_busy(self, busy: bool, status_text: str) -> None:
         self.send_btn.setDisabled(busy)
@@ -571,6 +608,27 @@ class MainWindow(QMainWindow):
         cursor.insertText(f'[{role}]\n')
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
+
+    def _show_reasoning_placeholder(self) -> None:
+        if self._streaming_assistant_started or self._reasoning_placeholder_start is not None:
+            return
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self._reasoning_placeholder_start = cursor.position()
+        cursor.insertText('[Assistant]\nReasoning...\n\n')
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+
+    def _clear_reasoning_placeholder(self) -> None:
+        if self._reasoning_placeholder_start is None:
+            return
+        cursor = self.chat_view.textCursor()
+        cursor.setPosition(self._reasoning_placeholder_start)
+        cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+        cursor.removeSelectedText()
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+        self._reasoning_placeholder_start = None
 
     def _append_stream_text(self, text: str) -> None:
         text = normalize_text_for_display(text)

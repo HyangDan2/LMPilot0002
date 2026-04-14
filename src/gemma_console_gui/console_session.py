@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 import pexpect
 
-from .llm_client import LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
+from .llm_client import ChatStreamChunk, LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
 from .token_handler import ModelPrompt
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -134,23 +134,24 @@ class OpenAICompatibleSession:
             raise ConsoleSessionError("Model returned an empty response.")
         return answer
 
-    def ask_stream(self, user_text: str | ModelPrompt) -> Iterator[str]:
+    def ask_stream(self, user_text: str | ModelPrompt) -> Iterator[ChatStreamChunk]:
         if not self.is_alive():
             self.start()
 
         messages = self._build_chat_messages(user_text)
-        emitted_text = False
+        emitted_chunk = False
         answer_parts: list[str] = []
 
         try:
             for chunk in self._client.stream_chat_completion(messages):
-                emitted_text = True
-                answer_parts.append(chunk)
+                emitted_chunk = True
+                if chunk.kind == "final":
+                    answer_parts.append(chunk.text)
                 yield chunk
         except LLMClientError as exc:
-            if not emitted_text:
+            if not emitted_chunk:
                 answer = self.ask(user_text)
-                yield answer
+                yield ChatStreamChunk(kind="final", text=answer)
                 return
             raise ConsoleSessionError(str(exc)) from exc
 
