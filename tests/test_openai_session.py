@@ -6,10 +6,17 @@ from src.gemma_console_gui.llm_client import ChatStreamChunk, LLMClientError
 
 
 class FakeOpenAIClient:
-    def __init__(self, chunks: list[ChatStreamChunk], error: LLMClientError | None = None) -> None:
+    def __init__(
+        self,
+        chunks: list[ChatStreamChunk],
+        error: LLMClientError | None = None,
+        chat_results: list[str | LLMClientError] | None = None,
+    ) -> None:
         self.chunks = chunks
         self.error = error
+        self.chat_results = chat_results or ["fallback answer"]
         self.chat_completion_calls = 0
+        self.chat_messages: list[list[dict[str, str]]] = []
 
     def stream_chat_completion(self, messages: list[dict[str, str]]) -> Iterator[ChatStreamChunk]:
         yield from self.chunks
@@ -18,7 +25,11 @@ class FakeOpenAIClient:
 
     def chat_completion(self, messages: list[dict[str, str]]) -> str:
         self.chat_completion_calls += 1
-        return "fallback answer"
+        self.chat_messages.append(messages)
+        result = self.chat_results.pop(0)
+        if isinstance(result, LLMClientError):
+            raise result
+        return result
 
     def close_active_request(self) -> None:
         pass
@@ -61,6 +72,40 @@ class OpenAICompatibleSessionTests(unittest.TestCase):
 
         self.assertEqual(str(raised.exception), "Generation stopped.")
         self.assertEqual(client.chat_completion_calls, 0)
+
+    def test_reasoning_only_non_streaming_response_retries_for_final_answer(self) -> None:
+        client = FakeOpenAIClient(
+            [],
+            chat_results=[
+                LLMClientError("Backend returned reasoning only, but no final assistant answer."),
+                "final answer",
+            ],
+        )
+        session = self.make_session(client)
+
+        self.assertEqual(session.ask("hello"), "final answer")
+        self.assertEqual(client.chat_completion_calls, 2)
+        self.assertEqual(client.chat_messages[1][0]["role"], "system")
+        self.assertIn("only the final answer", client.chat_messages[1][0]["content"])
+
+    def test_reasoning_only_stream_fallback_uses_final_answer_retry(self) -> None:
+        client = FakeOpenAIClient(
+            [ChatStreamChunk(kind="reasoning")],
+            LLMClientError("Backend returned reasoning only, but no final assistant answer."),
+            chat_results=[
+                LLMClientError("Backend returned reasoning only, but no final assistant answer."),
+                "final answer",
+            ],
+        )
+        session = self.make_session(client)
+
+        chunks = list(session.ask_stream("hello"))
+
+        self.assertEqual(
+            [(chunk.kind, chunk.text) for chunk in chunks],
+            [("reasoning", ""), ("final", "final answer")],
+        )
+        self.assertEqual(client.chat_completion_calls, 2)
 
 
 if __name__ == "__main__":

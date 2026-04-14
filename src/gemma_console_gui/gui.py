@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator, Protocol
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
-from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut, QTextDocumentFragment
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -147,6 +147,7 @@ class MainWindow(QMainWindow):
         self._connection_test_worker: ConnectionTestWorker | None = None
         self._generation_stop_requested = False
         self._streaming_assistant_started = False
+        self._streaming_block_start: int | None = None
         self._reasoning_placeholder_start: int | None = None
         self._attached_file_paths: list[str] = []
 
@@ -628,7 +629,7 @@ class MainWindow(QMainWindow):
         if self.current_session_id is not None:
             self.repository.add_message(self.current_session_id, 'assistant', answer)
         if was_streamed or self._streaming_assistant_started:
-            self._finish_stream_block()
+            self._replace_stream_block_with_markdown('Assistant', answer)
         else:
             self._append_block('Assistant', answer)
         self._set_busy(False, 'Idle')
@@ -660,6 +661,7 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._worker_thread = None
         self._streaming_assistant_started = False
+        self._streaming_block_start = None
         self._reasoning_placeholder_start = None
 
     def _set_new_session_title(
@@ -706,11 +708,8 @@ class MainWindow(QMainWindow):
         if not messages:
             self._append_block('System', 'New chat started.')
             return
-        blocks = [
-            self._format_display_block(self._display_label_for_role(message['role']), message['content'])
-            for message in messages
-        ]
-        self.chat_view.setPlainText(''.join(blocks))
+        for message in messages:
+            self._append_block(self._display_label_for_role(message['role']), message['content'])
         cursor = self.chat_view.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.chat_view.setTextCursor(cursor)
@@ -754,16 +753,16 @@ class MainWindow(QMainWindow):
         self._refresh_attachment_list()
 
     def _append_block(self, role: str, text: str) -> None:
-        block = self._format_display_block(role, text)
         cursor = self.chat_view.textCursor()
         cursor.movePosition(QTextCursor.End)
-        cursor.insertText(block)
+        self._insert_markdown_block(cursor, role, text)
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
 
     def _append_block_start(self, role: str) -> None:
         cursor = self.chat_view.textCursor()
         cursor.movePosition(QTextCursor.End)
+        self._streaming_block_start = cursor.position()
         cursor.insertText(f'[{role}]\n')
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
@@ -807,11 +806,34 @@ class MainWindow(QMainWindow):
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
         self._streaming_assistant_started = False
+        self._streaming_block_start = None
+
+    def _replace_stream_block_with_markdown(self, role: str, text: str) -> None:
+        cursor = self.chat_view.textCursor()
+        if self._streaming_block_start is not None:
+            cursor.setPosition(self._streaming_block_start)
+            cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+            cursor.removeSelectedText()
+        else:
+            cursor.movePosition(QTextCursor.End)
+        self._insert_markdown_block(cursor, role, text)
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+        self._streaming_assistant_started = False
+        self._streaming_block_start = None
 
     def _format_display_block(self, role: str, text: str) -> str:
         text = normalize_text_for_display(text)
         text = strip_unsupported_chars(text)
-        return f'[{role}]\n{text}\n\n'
+        return f'**{role}**\n\n{text}\n\n'
+
+    def _insert_markdown_block(self, cursor: QTextCursor, role: str, text: str) -> None:
+        block = self._format_display_block(role, text)
+        try:
+            cursor.insertFragment(QTextDocumentFragment.fromMarkdown(block))
+            cursor.insertBlock()
+        except (AttributeError, TypeError):
+            cursor.insertText(block)
 
     @staticmethod
     def _display_label_for_role(role: str) -> str:
