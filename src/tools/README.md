@@ -32,10 +32,10 @@ Attached files are available through the prompt-transforming tool command:
 Image analysis uses the same pattern but sends OpenAI-compatible vision content:
 
 ```text
-/image_analyze chart.png summarize the visible trend
+/analyze_image chart.png summarize the visible trend
 ```
 
-`/image_analyze` sends one attached image as a base64 data URL plus the instruction text. Use an OpenAI-compatible or chat-completions vision backend for this command.
+`/analyze_image` sends one attached image as a base64 data URL plus the instruction text. Use an OpenAI-compatible or chat-completions vision backend for this command.
 
 For future tools, add a module with the implementation, register a new dictionary entry in `TOOL_REGISTRY`, and keep the handler signature as:
 

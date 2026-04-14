@@ -30,22 +30,23 @@ from PySide6.QtWidgets import (
 from src.tools import (
     PromptToolResult,
     ToolError,
-    parse_image_analyze_command,
+    parse_analyze_image_command,
     parse_use_file_command,
-    run_image_analyze_command,
+    run_analyze_image_command,
     run_tool_command,
     run_use_file_command,
 )
 
 from .attachment_handler import (
     AttachmentError,
-    SUPPORTED_EXTENSIONS,
+    list_supported_files_in_folder,
     validate_attachment_path,
 )
 from .config import AppConfig, save_connection_settings
 from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
 from .llm_client import ChatStreamChunk, OpenAIConnectionSettings
+from .markdown_export import format_chat_markdown, safe_markdown_filename
 from .session_title import DEFAULT_ATTACHMENT_PROMPT, DEFAULT_SESSION_TITLE, derive_session_title_from_input
 from .token_handler import (
     ModelPrompt,
@@ -162,6 +163,7 @@ class MainWindow(QMainWindow):
         self._streaming_block_start: int | None = None
         self._reasoning_placeholder_start: int | None = None
         self._attached_file_paths: list[str] = []
+        self._attachment_folder_roots: dict[str, str] = {}
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -180,7 +182,7 @@ class MainWindow(QMainWindow):
         self.attachment_list.setMaximumHeight(120)
         self.attachment_list.currentRowChanged.connect(self._on_attachment_selection_changed)
 
-        self.attach_file_btn = QPushButton('Attach File')
+        self.attach_file_btn = QPushButton('Attach Folder')
         self.attach_file_btn.clicked.connect(self.on_attach_files)
 
         self.remove_attachment_btn = QPushButton('Remove Attachment')
@@ -206,6 +208,9 @@ class MainWindow(QMainWindow):
 
         self.clear_view_btn = QPushButton('Clear View')
         self.clear_view_btn.clicked.connect(self._clear_view_only)
+
+        self.save_chat_btn = QPushButton('Save Chat')
+        self.save_chat_btn.clicked.connect(self.on_save_chat_markdown)
 
         settings_group = QGroupBox('OpenAI-Compatible Settings')
         settings_layout = QFormLayout(settings_group)
@@ -256,6 +261,7 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        button_row.addWidget(self.save_chat_btn)
         button_row.addWidget(self.clear_view_btn)
         button_row.addWidget(self.stop_btn)
         button_row.addWidget(self.send_btn)
@@ -428,24 +434,30 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_attach_files(self) -> None:
-        extensions = ' '.join(f'*{extension}' for extension in sorted(SUPPORTED_EXTENSIONS))
-        files, _ = QFileDialog.getOpenFileNames(
+        folder = QFileDialog.getExistingDirectory(
             self,
-            'Attach Files',
+            'Attach Workspace Folder',
             '',
-            f'Supported files ({extensions});;All files (*)',
         )
-        if not files:
+        if not folder:
             return
 
+        try:
+            files = list_supported_files_in_folder(folder)
+        except AttachmentError as exc:
+            QMessageBox.warning(self, 'Attach Folder', str(exc))
+            return
+
+        root = str(Path(folder).expanduser().resolve())
         existing_paths = set(self._attached_file_paths)
         failures: list[str] = []
         for path in files:
             try:
-                attachment_path = str(validate_attachment_path(path))
+                attachment_path = str(validate_attachment_path(str(path)))
             except AttachmentError as exc:
                 failures.append(str(exc))
                 continue
+            self._attachment_folder_roots[attachment_path] = root
             if attachment_path in existing_paths:
                 continue
             self._attached_file_paths.append(attachment_path)
@@ -453,7 +465,41 @@ class MainWindow(QMainWindow):
 
         self._refresh_attachment_list()
         if failures:
-            QMessageBox.warning(self, 'Attach File', '\n'.join(failures))
+            QMessageBox.warning(self, 'Attach Folder', '\n'.join(failures))
+
+    @Slot()
+    def on_save_chat_markdown(self) -> None:
+        if self.current_session_id is None:
+            QMessageBox.information(self, 'Save Chat', 'Please select or create a session first.')
+            return
+
+        messages = self.repository.get_messages(self.current_session_id)
+        if not messages:
+            QMessageBox.information(self, 'Save Chat', 'This session has no chat messages to save.')
+            return
+
+        title = self.repository.get_session_title(self.current_session_id)
+        default_path = f'{safe_markdown_filename(title)}.md'
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Save Chat Markdown',
+            default_path,
+            'Markdown files (*.md);;All files (*)',
+        )
+        if not output_path:
+            return
+
+        file_path = Path(output_path)
+        if not file_path.suffix:
+            file_path = file_path.with_suffix('.md')
+
+        try:
+            file_path.write_text(format_chat_markdown(title, messages), encoding='utf-8')
+        except OSError as exc:
+            QMessageBox.critical(self, 'Save Chat', f'Could not save chat: {exc}')
+            self._set_status('Chat save failed')
+            return
+        self._set_status(f'Chat saved: {file_path}')
 
     @Slot()
     def on_send(self) -> None:
@@ -469,9 +515,9 @@ class MainWindow(QMainWindow):
         prompt_tool_name = ""
         model_user_text: Any = display_user_text
         try:
-            if parse_image_analyze_command(display_user_text) is not None:
-                prompt_tool_result = run_image_analyze_command(display_user_text, list(self._attached_file_paths))
-                prompt_tool_name = "/image_analyze"
+            if parse_analyze_image_command(display_user_text) is not None:
+                prompt_tool_result = run_analyze_image_command(display_user_text, list(self._attached_file_paths))
+                prompt_tool_name = "/analyze_image"
             elif parse_use_file_command(display_user_text) is not None:
                 prompt_tool_result = run_use_file_command(display_user_text, list(self._attached_file_paths))
                 prompt_tool_name = "/use_file"
@@ -481,11 +527,11 @@ class MainWindow(QMainWindow):
             return
 
         if prompt_tool_result is not None:
-            if prompt_tool_name == "/image_analyze" and self.app_config.backend == "cli":
+            if prompt_tool_name == "/analyze_image" and self.app_config.backend == "cli":
                 self.input_edit.clear()
                 self._append_local_tool_error(
                     display_user_text,
-                    "/image_analyze requires an OpenAI-compatible or chat-completions vision backend.",
+                    "/analyze_image requires an OpenAI-compatible or chat-completions vision backend.",
                 )
                 return
             model_user_text = prompt_tool_result.content
@@ -715,6 +761,7 @@ class MainWindow(QMainWindow):
         self.test_connection_btn.setDisabled(busy)
         self.save_settings_btn.setDisabled(busy)
         self.attach_file_btn.setDisabled(busy)
+        self.save_chat_btn.setDisabled(busy)
         self.remove_attachment_btn.setDisabled(busy or self.attachment_list.currentRow() < 0)
         self.clear_attachments_btn.setDisabled(busy or not self._attached_file_paths)
         self._set_status(status_text)
@@ -758,15 +805,24 @@ class MainWindow(QMainWindow):
         for path in source_paths:
             file_path = Path(path)
             file_type = file_path.suffix.lower().lstrip(".") or "file"
-            lines.append(f'- {file_path.name} ({file_type})')
+            lines.append(f'- {self._attachment_display_name(path)} ({file_type})')
         return '\n'.join(lines)
+
+    def _attachment_display_name(self, path: str) -> str:
+        root = self._attachment_folder_roots.get(path)
+        if root:
+            try:
+                return str(Path(path).relative_to(root))
+            except ValueError:
+                pass
+        return Path(path).name
 
     def _refresh_attachment_list(self) -> None:
         self.attachment_list.clear()
         for path in self._attached_file_paths:
             file_path = Path(path)
             file_type = file_path.suffix.lower().lstrip(".") or "file"
-            item = QListWidgetItem(f'{file_path.name} ({file_type})')
+            item = QListWidgetItem(f'{self._attachment_display_name(path)} ({file_type})')
             item.setToolTip(path)
             self.attachment_list.addItem(item)
         has_attachments = bool(self._attached_file_paths)
@@ -777,11 +833,13 @@ class MainWindow(QMainWindow):
         row = self.attachment_list.currentRow()
         if row < 0:
             return
-        del self._attached_file_paths[row]
+        removed_path = self._attached_file_paths.pop(row)
+        self._attachment_folder_roots.pop(removed_path, None)
         self._refresh_attachment_list()
 
     def _clear_attached_files(self) -> None:
         self._attached_file_paths.clear()
+        self._attachment_folder_roots.clear()
         self._refresh_attachment_list()
 
     def _append_block(self, role: str, text: str) -> None:

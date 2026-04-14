@@ -43,7 +43,7 @@ The orchestrator is intentionally simple. It runs each step in order and stops w
 - `execute(name, arguments)`
 - provider-facing schema export
 
-`build_default_tool_registry()` adapts the existing `src/tools/registry.py` tools, so calculator, `/use_file`, and `/image_analyze` stay in one place.
+`build_default_tool_registry()` adapts the existing `src/tools/registry.py` tools, so calculator, `/use_file`, and `/analyze_image` stay in one place.
 
 Tool execution remains explicit. The pipeline does not run model-requested tools unless `state.metadata["execute_model_tools"]` is set to `True`.
 

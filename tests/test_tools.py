@@ -5,9 +5,9 @@ from pathlib import Path
 from src.tools import (
     ToolError,
     list_tool_schemas,
-    parse_image_analyze_command,
+    parse_analyze_image_command,
+    run_analyze_image_command,
     parse_use_file_command,
-    run_image_analyze_command,
     run_tool,
     run_tool_command,
     run_use_file_command,
@@ -35,7 +35,7 @@ class ToolRegistryTests(unittest.TestCase):
 
         self.assertEqual(schemas[0]["type"], "function")
         self.assertEqual(schemas[0]["function"]["name"], "calculator")
-        self.assertIn("image_analyze", {schema["function"]["name"] for schema in schemas})
+        self.assertIn("analyze_image", {schema["function"]["name"] for schema in schemas})
 
     def test_use_file_command_transforms_prompt_with_attached_file_content(self) -> None:
         path = Path(tempfile.mkdtemp()) / "note.txt"
@@ -94,11 +94,11 @@ class ToolRegistryTests(unittest.TestCase):
 
         self.assertIn("Multiple attached files", str(raised.exception))
 
-    def test_image_analyze_command_builds_openai_vision_content(self) -> None:
+    def test_analyze_image_command_builds_openai_vision_content(self) -> None:
         path = Path(tempfile.mkdtemp()) / "photo.png"
         path.write_bytes(b"\x89PNG\r\n\x1a\nsample")
 
-        result = run_image_analyze_command("/image_analyze photo.png describe it", [str(path)])
+        result = run_analyze_image_command("/analyze_image photo.png describe it", [str(path)])
 
         self.assertIsNotNone(result)
         assert result is not None
@@ -107,20 +107,20 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertEqual(result.content[1]["type"], "image_url")
         self.assertTrue(result.content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
 
-    def test_image_analyze_command_uses_named_target_and_instruction(self) -> None:
-        parsed = parse_image_analyze_command("/image_analyze chart.png summarize trends")
+    def test_analyze_image_command_uses_named_target_and_instruction(self) -> None:
+        parsed = parse_analyze_image_command("/analyze_image chart.png summarize trends")
 
         self.assertIsNotNone(parsed)
         assert parsed is not None
         self.assertEqual(parsed.target, "chart.png")
         self.assertEqual(parsed.instruction, "summarize trends")
 
-    def test_image_analyze_command_rejects_non_image_target(self) -> None:
+    def test_analyze_image_command_rejects_non_image_target(self) -> None:
         path = Path(tempfile.mkdtemp()) / "note.txt"
         path.write_text("not an image", encoding="utf-8")
 
         with self.assertRaises(ToolError):
-            run_image_analyze_command("/image_analyze note.txt describe it", [str(path)])
+            run_analyze_image_command("/analyze_image note.txt describe it", [str(path)])
 
 
 if __name__ == "__main__":

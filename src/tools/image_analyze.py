@@ -31,7 +31,7 @@ def build_image_analyze_content(path: str, instruction: str = "") -> list[dict[s
     suffix = image_path.suffix.lower()
     if suffix not in IMAGE_ANALYZE_EXTENSIONS:
         supported = " ".join(sorted(IMAGE_ANALYZE_EXTENSIONS))
-        raise ImageAnalyzeError(f"/image_analyze requires an image file ({supported}).")
+        raise ImageAnalyzeError(f"/analyze_image requires an image file ({supported}).")
 
     try:
         encoded = base64.b64encode(Path(image_path).read_bytes()).decode("ascii")
