@@ -176,14 +176,68 @@ class OpenAICompatibleClient:
             raise LLMClientError("Malformed chat response: missing choices.")
         first_choice = choices[0]
         if not isinstance(first_choice, dict):
-            raise LLMClientError("Malformed chat response: choice is not an object.")
+            raise LLMClientError(
+                "Malformed chat response: choice is not an object. "
+                f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
+            )
         message = first_choice.get("message")
-        if isinstance(message, dict) and isinstance(message.get("content"), str):
-            return message["content"].strip()
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str):
+                return content.strip()
+            block_text = OpenAICompatibleClient._extract_text_blocks(content)
+            if block_text is not None:
+                return block_text
         text = first_choice.get("text")
         if isinstance(text, str):
             return text.strip()
-        raise LLMClientError("Malformed chat response: missing assistant content.")
+        delta = first_choice.get("delta")
+        if isinstance(delta, dict):
+            delta_content = delta.get("content")
+            if isinstance(delta_content, str):
+                return delta_content.strip()
+            block_text = OpenAICompatibleClient._extract_text_blocks(delta_content)
+            if block_text is not None:
+                return block_text
+        if isinstance(message, dict):
+            for key in ("text", "output_text"):
+                text = message.get(key)
+                if isinstance(text, str):
+                    return text.strip()
+        raise LLMClientError(
+            "Malformed chat response: missing assistant content. "
+            f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
+        )
+
+    @staticmethod
+    def _extract_text_blocks(value: Any) -> str | None:
+        if not isinstance(value, list):
+            return None
+
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            for key in ("text", "content"):
+                text = item.get(key)
+                if isinstance(text, str):
+                    parts.append(text)
+                    break
+        if not parts:
+            return None
+        return "".join(parts).strip()
+
+    @staticmethod
+    def _preview_payload(value: Any) -> str:
+        try:
+            preview = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            preview = repr(value)
+        sanitized = preview.replace("\n", " ").strip()
+        return sanitized[:500] if sanitized else "<empty payload>"
 
     @staticmethod
     def _extract_embeddings(data: dict[str, Any]) -> list[list[float]]:

@@ -72,6 +72,101 @@ class OpenAICompatibleClientTests(unittest.TestCase):
         self.assertEqual(request["body"]["messages"], [{"role": "user", "content": "Hi"}])
         self.assertFalse(request["body"]["stream"])
 
+    def test_chat_completion_accepts_message_content_blocks(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(
+                200,
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": [
+                                    {"type": "text", "text": "hello "},
+                                    {"content": "from "},
+                                    "blocks",
+                                ]
+                            }
+                        }
+                    ]
+                },
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(
+            client.chat_completion([{"role": "user", "content": "Hi"}]),
+            "hello from blocks",
+        )
+
+    def test_chat_completion_accepts_choice_text(self) -> None:
+        FakeConnection.responses.append(FakeResponse(200, {"choices": [{"text": "legacy text"}]}))
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "legacy text")
+
+    def test_chat_completion_accepts_delta_content_blocks(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(
+                200,
+                {"choices": [{"delta": {"content": [{"text": "delta "}, {"content": "blocks"}]}}]},
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "delta blocks")
+
+    def test_chat_completion_accepts_delta_content_string(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(200, {"choices": [{"delta": {"content": "delta text"}}]})
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "delta text")
+
+    def test_chat_completion_accepts_message_text_fallbacks(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(200, {"choices": [{"message": {"output_text": "fallback text"}}]})
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "fallback text")
+
+    def test_malformed_chat_response_includes_choice_preview(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(
+                200,
+                {
+                    "choices": [
+                        {
+                            "message": {"content": [{"type": "image"}]},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                },
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        with self.assertRaises(LLMClientError) as raised:
+            client.chat_completion([{"role": "user", "content": "Hi"}])
+
+        message = str(raised.exception)
+        self.assertIn("Malformed chat response: missing assistant content.", message)
+        self.assertIn("finish_reason", message)
+        self.assertIn("image", message)
+
     def test_list_models_uses_base_url_prefix(self) -> None:
         FakeConnection.responses.append(
             FakeResponse(200, {"data": [{"id": "model-a"}, {"id": "model-b"}]})
