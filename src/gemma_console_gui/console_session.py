@@ -7,7 +7,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterator, Optional
 from urllib.parse import urlparse
 
 import pexpect
@@ -123,15 +123,7 @@ class OpenAICompatibleSession:
         if not self.is_alive():
             self.start()
 
-        if isinstance(user_text, ModelPrompt):
-            messages = [dict(message) for message in user_text.messages]
-        else:
-            if not user_text.strip():
-                raise ConsoleSessionError("Empty prompt is not allowed.")
-            messages = [{"role": "user", "content": user_text}]
-
-        if self.config.system_prompt and not any(message.get("role") == "system" for message in messages):
-            messages.insert(0, {"role": "system", "content": self.config.system_prompt})
+        messages = self._build_chat_messages(user_text)
 
         try:
             answer = self._client.chat_completion(messages)
@@ -141,6 +133,41 @@ class OpenAICompatibleSession:
         if not answer.strip():
             raise ConsoleSessionError("Model returned an empty response.")
         return answer
+
+    def ask_stream(self, user_text: str | ModelPrompt) -> Iterator[str]:
+        if not self.is_alive():
+            self.start()
+
+        messages = self._build_chat_messages(user_text)
+        emitted_text = False
+        answer_parts: list[str] = []
+
+        try:
+            for chunk in self._client.stream_chat_completion(messages):
+                emitted_text = True
+                answer_parts.append(chunk)
+                yield chunk
+        except LLMClientError as exc:
+            if not emitted_text:
+                answer = self.ask(user_text)
+                yield answer
+                return
+            raise ConsoleSessionError(str(exc)) from exc
+
+        if not "".join(answer_parts).strip():
+            raise ConsoleSessionError("Model returned an empty response.")
+
+    def _build_chat_messages(self, user_text: str | ModelPrompt) -> list[dict[str, str]]:
+        if isinstance(user_text, ModelPrompt):
+            messages = [dict(message) for message in user_text.messages]
+        else:
+            if not user_text.strip():
+                raise ConsoleSessionError("Empty prompt is not allowed.")
+            messages = [{"role": "user", "content": user_text}]
+
+        if self.config.system_prompt and not any(message.get("role") == "system" for message in messages):
+            messages.insert(0, {"role": "system", "content": self.config.system_prompt})
+        return messages
 
     def test_connection(self) -> str:
         try:

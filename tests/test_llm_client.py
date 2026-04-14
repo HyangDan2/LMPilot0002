@@ -13,9 +13,26 @@ class FakeResponse:
         return json.dumps(self.body).encode("utf-8")
 
 
+class FakeStreamingResponse:
+    def __init__(self, status: int, lines: list[str], body: dict | None = None) -> None:
+        self.status = status
+        self.lines = [line.encode("utf-8") for line in lines]
+        self.body = body or {}
+
+    def read(self) -> bytes:
+        if self.body:
+            return json.dumps(self.body).encode("utf-8")
+        return b"".join(self.lines)
+
+    def readline(self) -> bytes:
+        if not self.lines:
+            return b""
+        return self.lines.pop(0)
+
+
 class FakeConnection:
     requests: list[dict] = []
-    responses: list[FakeResponse] = []
+    responses: list[FakeResponse | FakeStreamingResponse] = []
 
     def __init__(self) -> None:
         self.closed = False
@@ -30,7 +47,7 @@ class FakeConnection:
             }
         )
 
-    def getresponse(self) -> FakeResponse:
+    def getresponse(self) -> FakeResponse | FakeStreamingResponse:
         return self.responses.pop(0)
 
     def close(self) -> None:
@@ -71,6 +88,49 @@ class OpenAICompatibleClientTests(unittest.TestCase):
         self.assertEqual(request["body"]["model"], "local-model")
         self.assertEqual(request["body"]["messages"], [{"role": "user", "content": "Hi"}])
         self.assertFalse(request["body"]["stream"])
+
+    def test_stream_chat_completion_posts_streaming_payload(self) -> None:
+        FakeConnection.responses.append(
+            FakeStreamingResponse(
+                200,
+                [
+                    'data: {"choices":[{"delta":{"role":"assistant"}}]}\n',
+                    'data: {"choices":[{"delta":{"content":"hello "}}]}\n',
+                    'data: {"choices":[{"delta":{"content":[{"text":"world"}]}}]}\n',
+                    "data: [DONE]\n",
+                ],
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        chunks = list(client.stream_chat_completion([{"role": "user", "content": "Hi"}]))
+
+        self.assertEqual(chunks, ["hello ", "world"])
+        request = FakeConnection.requests[0]
+        self.assertEqual(request["method"], "POST")
+        self.assertEqual(request["path"], "/v1/chat/completions")
+        self.assertTrue(request["body"]["stream"])
+
+    def test_stream_chat_completion_accepts_reasoning_delta(self) -> None:
+        FakeConnection.responses.append(
+            FakeStreamingResponse(
+                200,
+                [
+                    'data: {"choices":[{"delta":{"reasoning":"thinking"}}]}\n',
+                    "data: [DONE]\n",
+                ],
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(
+            list(client.stream_chat_completion([{"role": "user", "content": "Hi"}])),
+            ["thinking"],
+        )
 
     def test_chat_completion_accepts_message_content_blocks(self) -> None:
         FakeConnection.responses.append(

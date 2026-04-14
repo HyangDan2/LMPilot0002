@@ -4,7 +4,7 @@ import http.client
 import json
 import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 
@@ -44,6 +44,19 @@ class OpenAICompatibleClient:
         }
         data = self._request_json("POST", "/chat/completions", payload)
         return self._extract_chat_text(data)
+
+    def stream_chat_completion(self, messages: list[dict[str, str]]) -> Iterator[str]:
+        self._validate_for_chat()
+        payload: dict[str, Any] = {
+            "model": self.settings.model.strip(),
+            "messages": messages,
+            "temperature": self.settings.temperature,
+            "max_tokens": self.settings.max_tokens,
+            "stream": True,
+        }
+        yield from self._extract_stream_chat_text(
+            self._request_stream_events("POST", "/chat/completions", payload)
+        )
 
     def embeddings(self, inputs: list[str], model: str | None = None) -> list[list[float]]:
         self._validate_base_url()
@@ -148,6 +161,64 @@ class OpenAICompatibleClient:
                     self._active_connection = None
             conn.close()
 
+    def _request_stream_events(
+        self, method: str, endpoint: str, payload: dict[str, Any] | None = None
+    ) -> Iterator[dict[str, Any]]:
+        base_url = self._normalized_base_url()
+        parsed = urlparse(base_url)
+        path = self._join_paths(parsed.path, endpoint)
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        conn = self._create_connection(parsed)
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        api_key = self.settings.api_key.strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        with self._lock:
+            self._stop_requested = False
+            self._active_connection = conn
+
+        try:
+            conn.request(method, path, body=body, headers=headers)
+            response = conn.getresponse()
+            if response.status >= 400:
+                response_body = response.read().decode("utf-8", errors="replace")
+                raise LLMClientError(
+                    f"HTTP {response.status} from {path}: {self._safe_error_body(response_body)}"
+                )
+
+            while True:
+                line_bytes = response.readline()
+                if not line_bytes:
+                    return
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if not line or line.startswith(":"):
+                    continue
+                if not line.startswith("data:"):
+                    continue
+
+                data_text = line[5:].strip()
+                if data_text == "[DONE]":
+                    return
+                try:
+                    event = json.loads(data_text)
+                except json.JSONDecodeError as exc:
+                    raise LLMClientError(f"Malformed streaming JSON response from {path}: {data_text[:500]}") from exc
+                if not isinstance(event, dict):
+                    raise LLMClientError(f"Malformed streaming response from {path}: expected a JSON object.")
+                yield event
+        except LLMClientError:
+            raise
+        except (OSError, http.client.HTTPException) as exc:
+            if self._stop_requested:
+                raise LLMClientError("Generation stopped.") from exc
+            raise LLMClientError(f"{type(exc).__name__}: {exc}") from exc
+        finally:
+            with self._lock:
+                if self._active_connection is conn:
+                    self._active_connection = None
+            conn.close()
+
     def _create_connection(
         self, parsed_url
     ) -> http.client.HTTPConnection | http.client.HTTPSConnection:
@@ -183,48 +254,90 @@ class OpenAICompatibleClient:
                 "Malformed chat response: choice is not an object. "
                 f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
             )
-        message = first_choice.get("message")
-        if isinstance(message, dict):
-            block_text = OpenAICompatibleClient._extract_text_value(message.get("content"))
-            if block_text:
-                return block_text
-        text = first_choice.get("text")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-        delta = first_choice.get("delta")
-        if isinstance(delta, dict):
-            block_text = OpenAICompatibleClient._extract_text_value(delta.get("content"))
-            if block_text:
-                return block_text
-            for key in TEXT_FIELD_FALLBACKS:
-                block_text = OpenAICompatibleClient._extract_text_value(delta.get(key))
-                if block_text:
-                    return block_text
-        if isinstance(message, dict):
-            for key in TEXT_FIELD_FALLBACKS:
-                block_text = OpenAICompatibleClient._extract_text_value(message.get(key))
-                if block_text:
-                    return block_text
-        for key in ("content", "output_text", "response", "completion"):
-            block_text = OpenAICompatibleClient._extract_text_value(first_choice.get(key))
-            if block_text:
-                return block_text
-        finish_reason = first_choice.get("finish_reason")
-        finish_text = f" Finish reason: {finish_reason}." if isinstance(finish_reason, str) else ""
+        text = OpenAICompatibleClient._extract_choice_text(first_choice, strip=True)
+        if text:
+            return text
         raise LLMClientError(
             "Malformed chat response: missing assistant content."
-            f"{finish_text} "
+            f"{OpenAICompatibleClient._finish_reason_text(first_choice)} "
             f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
         )
 
     @staticmethod
-    def _extract_text_value(value: Any) -> str | None:
-        if isinstance(value, str):
-            return value.strip()
-        return OpenAICompatibleClient._extract_text_blocks(value)
+    def _extract_stream_chat_text(events: Iterator[dict[str, Any]]) -> Iterator[str]:
+        emitted_text = False
+        last_choice: Any = None
+        for event in events:
+            choices = event.get("choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+            first_choice = choices[0]
+            last_choice = first_choice
+            if not isinstance(first_choice, dict):
+                raise LLMClientError(
+                    "Malformed streaming chat response: choice is not an object. "
+                    f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
+                )
+            text = OpenAICompatibleClient._extract_choice_text(first_choice, strip=False)
+            if text is not None and text != "":
+                emitted_text = True
+                yield text
+
+        if not emitted_text:
+            raise LLMClientError(
+                "Malformed streaming chat response: missing assistant content. "
+                f"First choice: {OpenAICompatibleClient._preview_payload(last_choice)}"
+            )
 
     @staticmethod
-    def _extract_text_blocks(value: Any) -> str | None:
+    def _extract_choice_text(first_choice: dict[str, Any], strip: bool) -> str | None:
+        message = first_choice.get("message")
+        if isinstance(message, dict):
+            block_text = OpenAICompatibleClient._extract_text_value(message.get("content"), strip=strip)
+            if OpenAICompatibleClient._has_text(block_text, strip=strip):
+                return block_text
+        text = OpenAICompatibleClient._extract_text_value(first_choice.get("text"), strip=strip)
+        if OpenAICompatibleClient._has_text(text, strip=strip):
+            return text
+        delta = first_choice.get("delta")
+        if isinstance(delta, dict):
+            block_text = OpenAICompatibleClient._extract_text_value(delta.get("content"), strip=strip)
+            if OpenAICompatibleClient._has_text(block_text, strip=strip):
+                return block_text
+            for key in TEXT_FIELD_FALLBACKS:
+                block_text = OpenAICompatibleClient._extract_text_value(delta.get(key), strip=strip)
+                if OpenAICompatibleClient._has_text(block_text, strip=strip):
+                    return block_text
+        if isinstance(message, dict):
+            for key in TEXT_FIELD_FALLBACKS:
+                block_text = OpenAICompatibleClient._extract_text_value(message.get(key), strip=strip)
+                if OpenAICompatibleClient._has_text(block_text, strip=strip):
+                    return block_text
+        for key in ("content", "output_text", "response", "completion"):
+            block_text = OpenAICompatibleClient._extract_text_value(first_choice.get(key), strip=strip)
+            if OpenAICompatibleClient._has_text(block_text, strip=strip):
+                return block_text
+        return None
+
+    @staticmethod
+    def _finish_reason_text(first_choice: dict[str, Any]) -> str:
+        finish_reason = first_choice.get("finish_reason")
+        return f" Finish reason: {finish_reason}." if isinstance(finish_reason, str) else ""
+
+    @staticmethod
+    def _has_text(value: str | None, strip: bool) -> bool:
+        if value is None:
+            return False
+        return bool(value.strip()) if strip else value != ""
+
+    @staticmethod
+    def _extract_text_value(value: Any, strip: bool = True) -> str | None:
+        if isinstance(value, str):
+            return value.strip() if strip else value
+        return OpenAICompatibleClient._extract_text_blocks(value, strip=strip)
+
+    @staticmethod
+    def _extract_text_blocks(value: Any, strip: bool = True) -> str | None:
         if not isinstance(value, list):
             return None
 
@@ -242,7 +355,8 @@ class OpenAICompatibleClient:
                     break
         if not parts:
             return None
-        return "".join(parts).strip()
+        text = "".join(parts)
+        return text.strip() if strip else text
 
     @staticmethod
     def _preview_payload(value: Any) -> str:

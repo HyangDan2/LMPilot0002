@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import traceback
-from typing import Protocol
+from typing import Iterator, Protocol
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut
@@ -67,13 +67,15 @@ class ChatSession(Protocol):
     def stop(self, force: bool = False) -> None: ...
     def stop_generation(self) -> None: ...
     def ask(self, prompt_text: str | ModelPrompt) -> str: ...
+    def ask_stream(self, prompt_text: str | ModelPrompt) -> Iterator[str]: ...
     def update_connection_settings(self, settings: OpenAIConnectionSettings) -> None: ...
     def test_connection(self) -> str: ...
     def list_models(self) -> list[str]: ...
 
 
 class ChatWorker(QObject):
-    finished = Signal(str)
+    chunk = Signal(str)
+    finished = Signal(str, bool)
     error = Signal(str)
 
     def __init__(self, console: ChatSession, prompt_text: str | ModelPrompt) -> None:
@@ -84,8 +86,17 @@ class ChatWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
+            stream_answer = getattr(self.console, 'ask_stream', None)
+            if callable(stream_answer):
+                answer_parts: list[str] = []
+                for chunk in stream_answer(self.prompt_text):
+                    answer_parts.append(chunk)
+                    self.chunk.emit(chunk)
+                self.finished.emit(''.join(answer_parts), True)
+                return
+
             answer = self.console.ask(self.prompt_text)
-            self.finished.emit(answer)
+            self.finished.emit(answer, False)
         except ConsoleSessionError as exc:
             self.error.emit(str(exc))
         except Exception:
@@ -124,6 +135,7 @@ class MainWindow(QMainWindow):
         self._connection_test_thread: QThread | None = None
         self._connection_test_worker: ConnectionTestWorker | None = None
         self._generation_stop_requested = False
+        self._streaming_assistant_started = False
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -434,20 +446,42 @@ class MainWindow(QMainWindow):
         self.console.stop_generation()
 
     def _start_worker(self, prompt_text: str | ModelPrompt) -> None:
+        self._streaming_assistant_started = False
         self._worker_thread = QThread()
         self._worker = ChatWorker(self.console, prompt_text)
         self._worker.moveToThread(self._worker_thread)
         self._worker_thread.started.connect(self._worker.run)
+        self._worker.chunk.connect(self._on_generation_chunk)
         self._worker.finished.connect(self._on_generation_success)
         self._worker.error.connect(self._on_generation_error)
-        self._worker.finished.connect(self._worker_thread.quit)
-        self._worker.error.connect(self._worker_thread.quit)
+        self._worker.finished.connect(self._quit_worker_thread_after_success)
+        self._worker.error.connect(self._quit_worker_thread_after_error)
         self._worker_thread.finished.connect(self._cleanup_worker)
         self._worker_thread.start()
 
+    @Slot(str, bool)
+    def _quit_worker_thread_after_success(self, _answer: str, _was_streamed: bool) -> None:
+        if self._worker_thread is not None:
+            self._worker_thread.quit()
+
     @Slot(str)
-    def _on_generation_success(self, answer: str) -> None:
+    def _quit_worker_thread_after_error(self, _error_text: str) -> None:
+        if self._worker_thread is not None:
+            self._worker_thread.quit()
+
+    @Slot(str)
+    def _on_generation_chunk(self, chunk: str) -> None:
+        if not chunk:
+            return
+        if not self._streaming_assistant_started:
+            self._append_block_start('Assistant')
+            self._streaming_assistant_started = True
+        self._append_stream_text(chunk)
+
+    @Slot(str, bool)
+    def _on_generation_success(self, answer: str, was_streamed: bool) -> None:
         if self._generation_stop_requested:
+            self._finish_stream_block()
             self._append_block('System', 'Generation stopped.')
             self._generation_stop_requested = False
             self._set_busy(False, 'Idle')
@@ -455,7 +489,10 @@ class MainWindow(QMainWindow):
 
         if self.current_session_id is not None:
             self.repository.add_message(self.current_session_id, 'assistant', answer)
-        self._append_block('Assistant', answer)
+        if was_streamed or self._streaming_assistant_started:
+            self._finish_stream_block()
+        else:
+            self._append_block('Assistant', answer)
         self._set_busy(False, 'Idle')
         self._reload_sessions()
         if self.current_session_id is not None:
@@ -464,11 +501,13 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _on_generation_error(self, error_text: str) -> None:
         if self._generation_stop_requested:
+            self._finish_stream_block()
             self._append_block('System', 'Generation stopped.')
             self._generation_stop_requested = False
             self._set_busy(False, 'Idle')
             return
 
+        self._finish_stream_block()
         self._append_block('System', f'Error: {error_text}')
         self._set_busy(False, 'Error')
 
@@ -480,6 +519,7 @@ class MainWindow(QMainWindow):
             self._worker_thread.deleteLater()
         self._worker = None
         self._worker_thread = None
+        self._streaming_assistant_started = False
 
     def _set_busy(self, busy: bool, status_text: str) -> None:
         self.send_btn.setDisabled(busy)
@@ -524,6 +564,32 @@ class MainWindow(QMainWindow):
         cursor.insertText(block)
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
+
+    def _append_block_start(self, role: str) -> None:
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertText(f'[{role}]\n')
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+
+    def _append_stream_text(self, text: str) -> None:
+        text = normalize_text_for_display(text)
+        text = strip_unsupported_chars(text)
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertText(text)
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+
+    def _finish_stream_block(self) -> None:
+        if not self._streaming_assistant_started:
+            return
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertText('\n\n')
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+        self._streaming_assistant_started = False
 
     def _format_display_block(self, role: str, text: str) -> str:
         text = normalize_text_for_display(text)
