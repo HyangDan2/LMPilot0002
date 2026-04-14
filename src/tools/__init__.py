@@ -13,6 +13,7 @@ from .registry import (
     run_tool_command,
     run_use_file_command,
     select_attached_path,
+    tool_help_text,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "run_tool_command",
     "run_use_file_command",
     "select_attached_path",
+    "tool_help_text",
 ]

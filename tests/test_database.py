@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.gemma_console_gui.database import ChatRepository
+from src.gui.database import ChatRepository
 
 
 class ChatRepositoryTests(unittest.TestCase):

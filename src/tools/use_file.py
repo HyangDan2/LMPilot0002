@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.gemma_console_gui.attachment_handler import (
+from src.gui.attachment_handler import (
     AttachmentError,
     extract_text_from_file,
     format_attachment_context,

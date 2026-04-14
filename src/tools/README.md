@@ -15,7 +15,10 @@ The current calculator is available manually from chat:
 ```text
 /calc 2 + 3 * 4
 /calculator (2 + 3) * 4
+/help
 ```
+
+`/help` lists the available custom tool commands and short usage examples.
 
 Attached files are available through the prompt-transforming tool command:
 

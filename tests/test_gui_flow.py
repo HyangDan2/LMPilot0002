@@ -8,11 +8,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from src.gemma_console_gui.config import AppConfig
-from src.gemma_console_gui.console_session import ConsoleConfig, ConsoleSessionError
-from src.gemma_console_gui.database import ChatRepository
-from src.gemma_console_gui.gui import MainWindow
-from src.gemma_console_gui.token_handler import ModelPrompt
+from src.gui.config import AppConfig
+from src.gui.console_session import ConsoleConfig, ConsoleSessionError
+from src.gui.database import ChatRepository
+from src.gui.gui import MainWindow
+from src.gui.token_handler import ModelPrompt
 
 
 class FakeConsole:

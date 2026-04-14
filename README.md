@@ -27,13 +27,16 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 * 🧮 Local tool command
 
   * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
+  * `/help` lists the available custom tool commands
 * 📎 Folder attachments
 
   * Attach a workspace folder, then call `/use_file filename instruction` when the model should read one file
+  * Double-click an attached file to insert its filename into the input box
   * Call `/analyze_image filename instruction` to send an attached image to a vision-capable backend
 * 💾 Markdown export
 
   * Use **Save Chat** to save the current session as a `.md` file
+  * Use **Save Last Output** to save only the latest assistant response
 
 ---
 
@@ -154,15 +157,16 @@ python run.py --config config.yaml
   ```text
   /calc 2 + 3 * 4
   /calculator (2 + 3) * 4
+  /help
   ```
 
-  Tool commands run locally before any backend validation, so the calculator works even when the OpenAI-compatible backend is not connected. Results are displayed as `[Tool]` messages and saved in chat history.
+  Tool commands run locally before any backend validation, so `/calc` and `/help` work even when the OpenAI-compatible backend is not connected. Results are displayed as `[Tool]` messages and saved in chat history.
 
   Tools are registered as dictionaries under `src/tools`. Each registry entry includes a name, description, parameter metadata, an OpenAI-compatible schema stub, and a handler. This keeps the current manual command path small while leaving a clean route to future model-driven tool calling.
 
 * **Attachments and images**
 
-  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files inside that folder. Files are not automatically included in every prompt. To use the selected attachments, type:
+  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files directly inside that selected folder; subfolders are not scanned. Files are not automatically included in every prompt. Double-click an attached file to insert its filename into the input box. To use the selected attachments, type:
 
   ```text
   /use_file example.txt summarize this file
@@ -174,7 +178,7 @@ python run.py --config config.yaml
   /use_file example.txt translate file to Japanese
   ```
 
-  The GUI runs `/use_file` first, extracts that file's content, and then sends the transformed prompt through the normal LLM flow. Use the attachment list to remove a selected file or clear the full list. Attachments are ignored unless you call `/use_file`, which prevents accidental huge prompts.
+  The GUI runs `/use_file` first, extracts that file's content, and then sends the transformed prompt through the normal LLM flow. Use **Clear Attachments** to clear the full list. Attachments are ignored unless you call `/use_file`, which prevents accidental huge prompts.
 
   For image-capable OpenAI-compatible backends, use:
 
@@ -194,7 +198,7 @@ python run.py --config config.yaml
 
 * **Markdown export**
 
-  Use **Save Chat** next to **Clear View** to export the current session messages as Markdown. A file dialog lets you choose the output `.md` path.
+  Use **Save Chat** next to **Clear View** to export the current session messages as Markdown. Use **Save Last Output** to save only the latest assistant response. File dialogs let you choose the output `.md` path.
 
 Create and modify local settings in:
 

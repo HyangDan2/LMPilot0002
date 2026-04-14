@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.gemma_console_gui.rag_store import (
+from src.gui.rag_store import (
     RagStore,
     build_rag_context,
     chunk_text,

@@ -29,19 +29,6 @@ SUPPORTED_EXTENSIONS = {
 }
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 PLAIN_TEXT_EXTENSIONS = SUPPORTED_EXTENSIONS - {".pdf", ".docx"} - IMAGE_EXTENSIONS
-FOLDER_SCAN_EXCLUDED_DIRS = {
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    ".venv",
-    "__pycache__",
-    "env",
-    "node_modules",
-    "venv",
-}
 
 
 class AttachmentError(Exception):
@@ -62,9 +49,7 @@ def list_supported_files_in_folder(folder_path: str) -> list[Path]:
         raise AttachmentError(f"Folder not found: {root}")
 
     paths: list[Path] = []
-    for file_path in sorted(root.rglob("*")):
-        if any(part in FOLDER_SCAN_EXCLUDED_DIRS for part in file_path.relative_to(root).parts):
-            continue
+    for file_path in sorted(root.iterdir()):
         if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
             paths.append(file_path.resolve())
 

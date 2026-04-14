@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from src.gemma_console_gui.llm_client import LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
+from src.gui.llm_client import LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
 
 
 class FakeResponse:

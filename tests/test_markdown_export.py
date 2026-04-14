@@ -1,6 +1,6 @@
 import unittest
 
-from src.gemma_console_gui.markdown_export import format_chat_markdown, safe_markdown_filename
+from src.gui.markdown_export import format_chat_markdown, safe_markdown_filename
 
 
 class MarkdownExportTests(unittest.TestCase):

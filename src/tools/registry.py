@@ -7,7 +7,7 @@ import shlex
 from typing import Any
 
 from .calculator import CalculatorError, calculate
-from .image_analyze import ImageAnalyzeError, build_image_analyze_content
+from .analyze_image import AnalyzeImageError, build_analyze_image_content
 from .use_file import UseFileError, build_use_file_prompt
 
 
@@ -63,8 +63,8 @@ def _run_analyze_image(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(instruction, str):
         raise ToolError("analyze_image instruction must be a string.")
     try:
-        return build_image_analyze_content(path, instruction)
-    except ImageAnalyzeError as exc:
+        return build_analyze_image_content(path, instruction)
+    except AnalyzeImageError as exc:
         raise ToolError(str(exc)) from exc
 
 
@@ -78,6 +78,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
                 "description": "Arithmetic expression, for example 2 + 3 * 4.",
             }
         },
+        "usage": "/calc 2 + 3 * 4",
         "schema": {
             "type": "function",
             "function": {
@@ -110,6 +111,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
                 "description": "User instruction to ask over the file content.",
             },
         },
+        "usage": "/use_file example.txt summarize this file",
         "schema": {
             "type": "function",
             "function": {
@@ -146,6 +148,7 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
                 "description": "User instruction to ask about the image.",
             },
         },
+        "usage": "/analyze_image chart.png summarize the visible trend",
         "schema": {
             "type": "function",
             "function": {
@@ -186,11 +189,30 @@ def run_tool(name: str, arguments: dict[str, Any]) -> Any:
     return handler(arguments)
 
 
+def tool_help_text() -> str:
+    lines = [
+        "Custom tool commands:",
+        "/help",
+        "  Show this tool usage guide.",
+    ]
+    for tool in TOOL_REGISTRY.values():
+        usage = str(tool.get("usage", "")).strip()
+        description = str(tool.get("description", "")).strip()
+        if not usage:
+            continue
+        lines.append(usage)
+        if description:
+            lines.append(f"  {description}")
+    return "\n".join(lines)
+
+
 def run_tool_command(command_text: str) -> str | None:
     text = command_text.strip()
     if not text.startswith("/"):
         return None
     command, _, argument_text = text[1:].partition(" ")
+    if command.lower() == "help":
+        return tool_help_text()
     if command.lower() not in {"calc", "calculator"}:
         return None
     return str(run_tool("calculator", {"expression": argument_text}))
@@ -274,7 +296,7 @@ def run_use_file_command(command_text: str, paths: list[str]) -> PromptToolResul
 
 
 def run_analyze_image_command(command_text: str, paths: list[str]) -> PromptToolResult | None:
-    from .image_analyze import IMAGE_ANALYZE_EXTENSIONS
+    from .analyze_image import IMAGE_ANALYZE_EXTENSIONS
 
     command = parse_analyze_image_command(command_text)
     if command is None:

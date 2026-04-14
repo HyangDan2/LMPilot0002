@@ -12,6 +12,7 @@ from src.tools import (
     run_tool_command,
     run_use_file_command,
     select_attached_path,
+    tool_help_text,
 )
 
 
@@ -25,6 +26,15 @@ class ToolRegistryTests(unittest.TestCase):
     def test_non_tool_command_is_ignored(self) -> None:
         self.assertIsNone(run_tool_command("regular prompt"))
         self.assertIsNone(run_tool_command("/unknown 1 + 1"))
+
+    def test_help_command_lists_custom_tool_usage(self) -> None:
+        help_text = run_tool_command("/help")
+
+        self.assertEqual(help_text, tool_help_text())
+        assert help_text is not None
+        self.assertIn("/calc 2 + 3 * 4", help_text)
+        self.assertIn("/use_file example.txt", help_text)
+        self.assertIn("/analyze_image chart.png", help_text)
 
     def test_calculator_rejects_unsafe_expression(self) -> None:
         with self.assertRaises(ToolError):

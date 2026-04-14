@@ -1,8 +1,8 @@
 import json
 import unittest
 
-from src.gemma_console_gui.console_session import ConsoleConfig, ConsoleSessionError, LlamaServerSession
-from src.gemma_console_gui.token_handler import build_model_prompt_request
+from src.gui.console_session import ConsoleConfig, ConsoleSessionError, LlamaServerSession
+from src.gui.token_handler import build_model_prompt_request
 
 
 class FakeResponse:

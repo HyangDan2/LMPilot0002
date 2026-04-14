@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import traceback
 from pathlib import Path
 from typing import Any, Iterator, Protocol
@@ -176,14 +177,10 @@ class MainWindow(QMainWindow):
 
         self.attachment_list = QListWidget()
         self.attachment_list.setMaximumHeight(120)
-        self.attachment_list.currentRowChanged.connect(self._on_attachment_selection_changed)
+        self.attachment_list.itemDoubleClicked.connect(self._on_attachment_double_clicked)
 
         self.attach_file_btn = QPushButton('Attach Folder')
         self.attach_file_btn.clicked.connect(self.on_attach_files)
-
-        self.remove_attachment_btn = QPushButton('Remove Attachment')
-        self.remove_attachment_btn.clicked.connect(self._remove_selected_attachment)
-        self.remove_attachment_btn.setDisabled(True)
 
         self.clear_attachments_btn = QPushButton('Clear Attachments')
         self.clear_attachments_btn.clicked.connect(self._clear_attached_files)
@@ -204,6 +201,9 @@ class MainWindow(QMainWindow):
 
         self.clear_view_btn = QPushButton('Clear View')
         self.clear_view_btn.clicked.connect(self._clear_view_only)
+
+        self.save_last_output_btn = QPushButton('Save Last Output')
+        self.save_last_output_btn.clicked.connect(self.on_save_last_output_markdown)
 
         self.save_chat_btn = QPushButton('Save Chat')
         self.save_chat_btn.clicked.connect(self.on_save_chat_markdown)
@@ -241,7 +241,6 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.attachment_list)
         attachment_button_row = QHBoxLayout()
         attachment_button_row.addWidget(self.attach_file_btn)
-        attachment_button_row.addWidget(self.remove_attachment_btn)
         left_layout.addLayout(attachment_button_row)
         left_layout.addWidget(self.clear_attachments_btn)
         left_layout.addWidget(self.new_chat_btn)
@@ -257,6 +256,7 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        button_row.addWidget(self.save_last_output_btn)
         button_row.addWidget(self.save_chat_btn)
         button_row.addWidget(self.clear_view_btn)
         button_row.addWidget(self.stop_btn)
@@ -496,6 +496,40 @@ class MainWindow(QMainWindow):
             self._set_status('Chat save failed')
             return
         self._set_status(f'Chat saved: {file_path}')
+
+    @Slot()
+    def on_save_last_output_markdown(self) -> None:
+        if self.current_session_id is None:
+            QMessageBox.information(self, 'Save Last Output', 'Please select or create a session first.')
+            return
+
+        last_output = self._last_assistant_output()
+        if not last_output:
+            QMessageBox.information(self, 'Save Last Output', 'This session has no assistant output to save.')
+            return
+
+        title = self.repository.get_session_title(self.current_session_id)
+        default_path = f'{safe_markdown_filename(title)}-last-output.md'
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Save Last Output Markdown',
+            default_path,
+            'Markdown files (*.md);;All files (*)',
+        )
+        if not output_path:
+            return
+
+        file_path = Path(output_path)
+        if not file_path.suffix:
+            file_path = file_path.with_suffix('.md')
+
+        try:
+            file_path.write_text(last_output.rstrip() + '\n', encoding='utf-8')
+        except OSError as exc:
+            QMessageBox.critical(self, 'Save Last Output', f'Could not save last output: {exc}')
+            self._set_status('Last output save failed')
+            return
+        self._set_status(f'Last output saved: {file_path}')
 
     @Slot()
     def on_send(self) -> None:
@@ -757,15 +791,23 @@ class MainWindow(QMainWindow):
         self.test_connection_btn.setDisabled(busy)
         self.save_settings_btn.setDisabled(busy)
         self.attach_file_btn.setDisabled(busy)
+        self.save_last_output_btn.setDisabled(busy)
         self.save_chat_btn.setDisabled(busy)
-        self.remove_attachment_btn.setDisabled(busy or self.attachment_list.currentRow() < 0)
         self.clear_attachments_btn.setDisabled(busy or not self._attached_file_paths)
         self._set_status(status_text)
 
-    @Slot(int)
-    def _on_attachment_selection_changed(self, row: int) -> None:
-        busy = self._worker_thread is not None and self._worker_thread.isRunning()
-        self.remove_attachment_btn.setDisabled(busy or row < 0)
+    @Slot(QListWidgetItem)
+    def _on_attachment_double_clicked(self, item: QListWidgetItem) -> None:
+        row = self.attachment_list.row(item)
+        if row < 0 or row >= len(self._attached_file_paths):
+            return
+        display_name = self._attachment_display_name(self._attached_file_paths[row])
+        insertion = shlex.quote(display_name)
+        if self.input_edit.toPlainText() and not self.input_edit.toPlainText().endswith((" ", "\n", "\t")):
+            insertion = f" {insertion}"
+        self.input_edit.insertPlainText(insertion)
+        self.input_edit.setFocus()
+        self._set_status(f'Inserted attachment filename: {display_name}')
 
     @Slot(QListWidgetItem)
     def _on_session_selected(self, item: QListWidgetItem) -> None:
@@ -790,6 +832,14 @@ class MainWindow(QMainWindow):
 
     def _clear_view_only(self) -> None:
         self.chat_view.clear()
+
+    def _last_assistant_output(self) -> str:
+        if self.current_session_id is None:
+            return ""
+        for message in reversed(self.repository.get_messages(self.current_session_id)):
+            if message.get('role') == 'assistant':
+                return str(message.get('content', '')).strip()
+        return ""
 
     def _attached_filenames(self, paths: list[str] | None = None) -> list[str]:
         source_paths = self._attached_file_paths if paths is None else paths
@@ -822,16 +872,7 @@ class MainWindow(QMainWindow):
             item.setToolTip(path)
             self.attachment_list.addItem(item)
         has_attachments = bool(self._attached_file_paths)
-        self.remove_attachment_btn.setDisabled(not has_attachments or self.attachment_list.currentRow() < 0)
         self.clear_attachments_btn.setDisabled(not has_attachments)
-
-    def _remove_selected_attachment(self) -> None:
-        row = self.attachment_list.currentRow()
-        if row < 0:
-            return
-        removed_path = self._attached_file_paths.pop(row)
-        self._attachment_folder_roots.pop(removed_path, None)
-        self._refresh_attachment_list()
 
     def _clear_attached_files(self) -> None:
         self._attached_file_paths.clear()

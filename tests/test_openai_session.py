@@ -1,8 +1,8 @@
 import unittest
 from collections.abc import Iterator
 
-from src.gemma_console_gui.console_session import ConsoleConfig, ConsoleSessionError, OpenAICompatibleSession
-from src.gemma_console_gui.llm_client import ChatStreamChunk, LLMClientError
+from src.gui.console_session import ConsoleConfig, ConsoleSessionError, OpenAICompatibleSession
+from src.gui.llm_client import ChatStreamChunk, LLMClientError
 
 
 class FakeOpenAIClient:

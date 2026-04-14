@@ -1,7 +1,7 @@
 import unittest
 
-from src.gemma_console_gui.gui import normalize_text_for_display
-from src.gemma_console_gui.token_handler import (
+from src.gui.gui import normalize_text_for_display
+from src.gui.token_handler import (
     build_model_prompt,
     build_memory_context,
     build_model_prompt_request,

@@ -1,6 +1,6 @@
 import unittest
 
-from src.gemma_console_gui.session_title import (
+from src.gui.session_title import (
     DEFAULT_ATTACHMENT_PROMPT,
     DEFAULT_SESSION_TITLE,
     derive_session_title,
