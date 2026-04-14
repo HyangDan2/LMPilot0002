@@ -12,6 +12,9 @@ class LLMClientError(Exception):
     pass
 
 
+TEXT_FIELD_FALLBACKS = ("text", "output_text", "reasoning", "reasoning_content")
+
+
 @dataclass
 class OpenAIConnectionSettings:
     base_url: str = ""
@@ -182,32 +185,43 @@ class OpenAICompatibleClient:
             )
         message = first_choice.get("message")
         if isinstance(message, dict):
-            content = message.get("content")
-            if isinstance(content, str):
-                return content.strip()
-            block_text = OpenAICompatibleClient._extract_text_blocks(content)
-            if block_text is not None:
+            block_text = OpenAICompatibleClient._extract_text_value(message.get("content"))
+            if block_text:
                 return block_text
         text = first_choice.get("text")
-        if isinstance(text, str):
+        if isinstance(text, str) and text.strip():
             return text.strip()
         delta = first_choice.get("delta")
         if isinstance(delta, dict):
-            delta_content = delta.get("content")
-            if isinstance(delta_content, str):
-                return delta_content.strip()
-            block_text = OpenAICompatibleClient._extract_text_blocks(delta_content)
-            if block_text is not None:
+            block_text = OpenAICompatibleClient._extract_text_value(delta.get("content"))
+            if block_text:
                 return block_text
+            for key in TEXT_FIELD_FALLBACKS:
+                block_text = OpenAICompatibleClient._extract_text_value(delta.get(key))
+                if block_text:
+                    return block_text
         if isinstance(message, dict):
-            for key in ("text", "output_text"):
-                text = message.get(key)
-                if isinstance(text, str):
-                    return text.strip()
+            for key in TEXT_FIELD_FALLBACKS:
+                block_text = OpenAICompatibleClient._extract_text_value(message.get(key))
+                if block_text:
+                    return block_text
+        for key in ("content", "output_text", "response", "completion"):
+            block_text = OpenAICompatibleClient._extract_text_value(first_choice.get(key))
+            if block_text:
+                return block_text
+        finish_reason = first_choice.get("finish_reason")
+        finish_text = f" Finish reason: {finish_reason}." if isinstance(finish_reason, str) else ""
         raise LLMClientError(
-            "Malformed chat response: missing assistant content. "
+            "Malformed chat response: missing assistant content."
+            f"{finish_text} "
             f"First choice: {OpenAICompatibleClient._preview_payload(first_choice)}"
         )
+
+    @staticmethod
+    def _extract_text_value(value: Any) -> str | None:
+        if isinstance(value, str):
+            return value.strip()
+        return OpenAICompatibleClient._extract_text_blocks(value)
 
     @staticmethod
     def _extract_text_blocks(value: Any) -> str | None:

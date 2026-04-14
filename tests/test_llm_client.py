@@ -141,6 +141,61 @@ class OpenAICompatibleClientTests(unittest.TestCase):
 
         self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "fallback text")
 
+    def test_chat_completion_accepts_message_reasoning_fallback(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(
+                200,
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "length",
+                            "index": 0,
+                            "logprobs": None,
+                            "message": {
+                                "annotations": None,
+                                "audio": None,
+                                "content": None,
+                                "context": None,
+                                "function_call": None,
+                                "reasoning": "Thinking Process:\n\n1. Use the available text.",
+                            },
+                        }
+                    ]
+                },
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(
+            client.chat_completion([{"role": "user", "content": "Hi"}]),
+            "Thinking Process:\n\n1. Use the available text.",
+        )
+
+    def test_chat_completion_tries_fallbacks_after_empty_content(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(
+                200,
+                {"choices": [{"message": {"content": "", "text": "message fallback"}}]},
+            )
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "message fallback")
+
+    def test_chat_completion_accepts_choice_level_content_fallback(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(200, {"choices": [{"content": [{"text": "choice content"}]}]})
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        self.assertEqual(client.chat_completion([{"role": "user", "content": "Hi"}]), "choice content")
+
     def test_malformed_chat_response_includes_choice_preview(self) -> None:
         FakeConnection.responses.append(
             FakeResponse(
@@ -164,6 +219,7 @@ class OpenAICompatibleClientTests(unittest.TestCase):
 
         message = str(raised.exception)
         self.assertIn("Malformed chat response: missing assistant content.", message)
+        self.assertIn("Finish reason: stop.", message)
         self.assertIn("finish_reason", message)
         self.assertIn("image", message)
 
