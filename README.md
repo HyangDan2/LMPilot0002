@@ -24,6 +24,9 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 
   * Create new session
   * Delete selected session
+* 🧮 Local tool command
+
+  * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
 
 ---
 
@@ -137,6 +140,19 @@ python run.py --config config.yaml
 
   The prompt builder uses a recent-message window instead of reprocessing the entire session on every send. The database also has a session summary table and a vector chunk store so future RAG flows can combine a rolling summary, retrieved memory, recent messages, and the current user prompt.
 
+* **Local tools**
+
+  The first built-in local tool is a safe calculator command:
+
+  ```text
+  /calc 2 + 3 * 4
+  /calculator (2 + 3) * 4
+  ```
+
+  Tool commands run locally before any backend validation, so the calculator works even when the OpenAI-compatible backend is not connected. Results are displayed as `[Tool]` messages and saved in chat history.
+
+  Tools are registered as dictionaries under `src/tools`. Each registry entry includes a name, description, parameter metadata, an OpenAI-compatible schema stub, and a handler. This keeps the current manual command path small while leaving a clean route to future model-driven tool calling.
+
 Create and modify local settings in:
 
 ```bash
@@ -163,6 +179,10 @@ GUI (PySide6)
    ├── RAG Store
    │      ├── OpenAI-compatible /v1/embeddings
    │      └── cosine similarity search
+   │
+   ├── Local Tools
+   │      ├── dict-based registry in src/tools
+   │      └── calculator command (/calc)
    │
    └── Text Processing
           ├── ANSI strip

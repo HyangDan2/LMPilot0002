@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.tools import ToolError, run_tool_command
+
 from .config import AppConfig, save_connection_settings
 from .console_session import ConsoleConfig, ConsoleSessionError
 from .database import ChatRepository
@@ -387,6 +389,13 @@ class MainWindow(QMainWindow):
         user_text = self.input_edit.toPlainText().strip()
         if not user_text:
             return
+        display_user_text = normalize_prompt_text(user_text)
+        if not display_user_text:
+            return
+        if self._try_handle_tool_command(display_user_text):
+            self.input_edit.clear()
+            return
+
         settings = self._apply_connection_settings()
         if self.app_config.backend != "cli" and not settings.base_url:
             QMessageBox.warning(self, 'Missing Base URL', 'Enter a Base URL before sending a prompt.')
@@ -400,10 +409,6 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
 
         assert self.current_session_id is not None
-        display_user_text = normalize_prompt_text(user_text)
-        if not display_user_text:
-            return
-
         prior_message_count = self.repository.count_messages(self.current_session_id)
         prior_messages = self.repository.get_recent_messages(
             self.current_session_id,
@@ -439,6 +444,27 @@ class MainWindow(QMainWindow):
         self._generation_stop_requested = False
         self._set_busy(True, 'Generating response...')
         self._start_worker(model_prompt)
+
+    def _try_handle_tool_command(self, display_user_text: str) -> bool:
+        try:
+            result = run_tool_command(display_user_text)
+        except ToolError as exc:
+            result = f"Tool error: {exc}"
+        if result is None:
+            return False
+        if self.current_session_id is None:
+            self.on_new_chat()
+        assert self.current_session_id is not None
+        self._append_block('You', display_user_text)
+        self._append_block('Tool', result)
+        self.repository.add_message(self.current_session_id, 'user', display_user_text)
+        self.repository.add_message(self.current_session_id, 'tool', result)
+        if self.repository.get_session_title(self.current_session_id) == DEFAULT_SESSION_TITLE:
+            self.repository.update_session_title(self.current_session_id, derive_session_title(display_user_text))
+        self._set_status('Tool complete')
+        self._reload_sessions()
+        self._select_session_in_list(self.current_session_id)
+        return True
 
     @Slot()
     def on_stop_generation(self) -> None:
@@ -660,6 +686,8 @@ class MainWindow(QMainWindow):
             return 'You'
         if role == 'assistant':
             return 'Assistant'
+        if role == 'tool':
+            return 'Tool'
         return 'System'
 
     @Slot()
