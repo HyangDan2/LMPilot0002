@@ -33,10 +33,10 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
   * Attach a workspace folder, then call `/use_file filename instruction` when the model should read one file
   * Double-click an attached file to insert its filename into the input box
   * Call `/analyze_image filename instruction` to send an attached image to a vision-capable backend
-* 💾 Markdown export
+* 💾 Markdown export and quick copy
 
   * Use **Save Chat** to save the current session as a `.md` file
-  * Use **Save Last Output** to save only the latest assistant response
+  * Use **Copy Last Output** to copy the latest assistant response to the clipboard
 
 ---
 
@@ -198,7 +198,7 @@ python run.py --config config.yaml
 
 * **Markdown export**
 
-  Use **Save Chat** next to **Clear View** to export the current session messages as Markdown. Use **Save Last Output** to save only the latest assistant response. File dialogs let you choose the output `.md` path.
+  Use **Save Chat** next to **Clear View** to export the current session messages as Markdown. Use **Copy Last Output** to copy only the latest assistant response to the clipboard.
 
 Create and modify local settings in:
 

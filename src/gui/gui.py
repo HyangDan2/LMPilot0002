@@ -202,8 +202,8 @@ class MainWindow(QMainWindow):
         self.clear_view_btn = QPushButton('Clear View')
         self.clear_view_btn.clicked.connect(self._clear_view_only)
 
-        self.save_last_output_btn = QPushButton('Save Last Output')
-        self.save_last_output_btn.clicked.connect(self.on_save_last_output_markdown)
+        self.copy_last_output_btn = QPushButton('Copy Last Output')
+        self.copy_last_output_btn.clicked.connect(self.on_copy_last_output)
 
         self.save_chat_btn = QPushButton('Save Chat')
         self.save_chat_btn.clicked.connect(self.on_save_chat_markdown)
@@ -256,7 +256,7 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
-        button_row.addWidget(self.save_last_output_btn)
+        button_row.addWidget(self.copy_last_output_btn)
         button_row.addWidget(self.save_chat_btn)
         button_row.addWidget(self.clear_view_btn)
         button_row.addWidget(self.stop_btn)
@@ -498,38 +498,18 @@ class MainWindow(QMainWindow):
         self._set_status(f'Chat saved: {file_path}')
 
     @Slot()
-    def on_save_last_output_markdown(self) -> None:
+    def on_copy_last_output(self) -> None:
         if self.current_session_id is None:
-            QMessageBox.information(self, 'Save Last Output', 'Please select or create a session first.')
+            QMessageBox.information(self, 'Copy Last Output', 'Please select or create a session first.')
             return
 
         last_output = self._last_assistant_output()
         if not last_output:
-            QMessageBox.information(self, 'Save Last Output', 'This session has no assistant output to save.')
+            QMessageBox.information(self, 'Copy Last Output', 'This session has no assistant output to copy.')
             return
 
-        title = self.repository.get_session_title(self.current_session_id)
-        default_path = f'{safe_markdown_filename(title)}-last-output.md'
-        output_path, _ = QFileDialog.getSaveFileName(
-            self,
-            'Save Last Output Markdown',
-            default_path,
-            'Markdown files (*.md);;All files (*)',
-        )
-        if not output_path:
-            return
-
-        file_path = Path(output_path)
-        if not file_path.suffix:
-            file_path = file_path.with_suffix('.md')
-
-        try:
-            file_path.write_text(last_output.rstrip() + '\n', encoding='utf-8')
-        except OSError as exc:
-            QMessageBox.critical(self, 'Save Last Output', f'Could not save last output: {exc}')
-            self._set_status('Last output save failed')
-            return
-        self._set_status(f'Last output saved: {file_path}')
+        QApplication.clipboard().setText(last_output)
+        self._set_status('Last output copied to clipboard')
 
     @Slot()
     def on_send(self) -> None:
@@ -791,7 +771,7 @@ class MainWindow(QMainWindow):
         self.test_connection_btn.setDisabled(busy)
         self.save_settings_btn.setDisabled(busy)
         self.attach_file_btn.setDisabled(busy)
-        self.save_last_output_btn.setDisabled(busy)
+        self.copy_last_output_btn.setDisabled(busy)
         self.save_chat_btn.setDisabled(busy)
         self.clear_attachments_btn.setDisabled(busy or not self._attached_file_paths)
         self._set_status(status_text)
