@@ -40,6 +40,15 @@ Image analysis uses the same pattern but sends OpenAI-compatible vision content:
 
 `/analyze_image` sends one attached image as a base64 data URL plus the instruction text. Use an OpenAI-compatible or chat-completions vision backend for this command.
 
+Workspace presentation rendering scans a working folder, builds normalized document JSON and knowledge maps, asks an OpenAI-compatible planner for a slide plan, and renders a `.pptx`:
+
+```text
+/render_pptx Create a 7-slide executive summary
+/render_pptx --working-dir data/working --output-dir data/outputs --base-url http://127.0.0.1:8000/v1 --model local-model Create a 5-slide briefing
+```
+
+The command supports `.pptx`, `.docx`, `.xlsx`, and `.pdf` files. It uses `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` when the matching flags are not provided.
+
 For future tools, add a module with the implementation, register a new dictionary entry in `TOOL_REGISTRY`, and keep the handler signature as:
 
 ```python

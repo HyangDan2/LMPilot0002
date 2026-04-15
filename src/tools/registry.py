@@ -8,6 +8,7 @@ from typing import Any
 
 from .calculator import CalculatorError, calculate
 from .analyze_image import AnalyzeImageError, build_analyze_image_content
+from .render_pptx import RenderPptxCommandError, run_render_pptx_command
 from .use_file import UseFileError, build_use_file_prompt
 
 
@@ -65,6 +66,16 @@ def _run_analyze_image(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     try:
         return build_analyze_image_content(path, instruction)
     except AnalyzeImageError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+def _run_render_pptx(arguments: dict[str, Any]) -> str:
+    argument_text = arguments.get("argument_text", "")
+    if not isinstance(argument_text, str):
+        raise ToolError("render_pptx requires a goal string.")
+    try:
+        return run_render_pptx_command(argument_text)
+    except RenderPptxCommandError as exc:
         raise ToolError(str(exc)) from exc
 
 
@@ -172,6 +183,35 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "handler": _run_analyze_image,
     },
+    "render_pptx": {
+        "name": "render_pptx",
+        "description": "Scan workspace documents, plan slides with an OpenAI-compatible LLM, and render a PPTX.",
+        "parameters": {
+            "argument_text": {
+                "type": "string",
+                "description": "Optional flags followed by the presentation goal.",
+            },
+        },
+        "usage": "/render_pptx Create a 7-slide executive summary",
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "render_pptx",
+                "description": "Scan workspace documents, plan slides with an OpenAI-compatible LLM, and render a PPTX.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "argument_text": {
+                            "type": "string",
+                            "description": "Optional flags followed by the presentation goal.",
+                        },
+                    },
+                    "required": ["argument_text"],
+                },
+            },
+        },
+        "handler": _run_render_pptx,
+    },
 }
 
 
@@ -213,6 +253,8 @@ def run_tool_command(command_text: str) -> str | None:
     command, _, argument_text = text[1:].partition(" ")
     if command.lower() == "help":
         return tool_help_text()
+    if command.lower() == "render_pptx":
+        return str(run_tool("render_pptx", {"argument_text": argument_text}))
     if command.lower() not in {"calc", "calculator"}:
         return None
     return str(run_tool("calculator", {"expression": argument_text}))

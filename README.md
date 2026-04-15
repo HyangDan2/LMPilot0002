@@ -28,6 +28,7 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 
   * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
   * `/help` lists the available custom tool commands
+  * `/render_pptx Create a 7-slide executive summary` turns workspace documents into a generated `.pptx`
 * 📎 Folder attachments
 
   * Attach a workspace folder, then call `/use_file filename instruction` when the model should read one file
@@ -163,6 +164,64 @@ python run.py --config config.yaml
   Tool commands run locally before any backend validation, so `/calc` and `/help` work even when the OpenAI-compatible backend is not connected. Results are displayed as `[Tool]` messages and saved in chat history.
 
   Tools are registered as dictionaries under `src/tools`. Each registry entry includes a name, description, parameter metadata, an OpenAI-compatible schema stub, and a handler. This keeps the current manual command path small while leaving a clean route to future model-driven tool calling.
+
+* **Workspace PPTX rendering**
+
+  `/render_pptx` scans a working folder recursively, parses supported documents, writes normalized JSON, creates a knowledge map, asks an OpenAI-compatible LLM for a strict JSON slide plan, and renders a deterministic PowerPoint file.
+
+  Supported source files:
+
+  ```text
+  .pptx .docx .xlsx .pdf
+  ```
+
+  Install the document pipeline dependencies with:
+
+  ```bash
+  pip install -r requirements.txt
+  ```
+
+  Put source documents in:
+
+  ```text
+  data/working/
+  ```
+
+  Configure the planner through environment variables:
+
+  ```bash
+  export LLM_BASE_URL="http://127.0.0.1:8000/v1"
+  export LLM_MODEL="your-model-name"
+  export LLM_API_KEY=""
+  ```
+
+  Run from the chat input:
+
+  ```text
+  /render_pptx Create a 7-slide executive summary
+  ```
+
+  Or pass paths and LLM settings directly:
+
+  ```text
+  /render_pptx --working-dir data/working --normalized-dir data/normalized --output-dir data/outputs --base-url http://127.0.0.1:8000/v1 --model local-model Create a 5-slide briefing
+  ```
+
+  The same pipeline can run from a terminal:
+
+  ```bash
+  python -m app.main --working-dir data/working --output-dir data/outputs "Create a 7-slide executive summary"
+  ```
+
+  Generated files:
+
+  ```text
+  data/normalized/<document-id>.json
+  data/normalized/knowledge_map.md
+  data/normalized/knowledge_map.json
+  data/outputs/planner_output.json
+  data/outputs/<presentation-title>.pptx
+  ```
 
 * **Attachments and images**
 
