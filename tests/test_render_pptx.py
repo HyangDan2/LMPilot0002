@@ -2,9 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.config import PipelineConfig
 from app.ingestion.scanner import scan_supported_files
 from app.planner.planner import PlannerError, parse_presentation_plan
-from src.tools.render_pptx import parse_render_pptx_arguments
+from src.tools.render_pptx import (
+    RenderPptxCommandError,
+    build_attached_folder_render_config,
+    parse_render_pptx_arguments,
+    run_render_pptx_command,
+)
 
 
 class RenderPptxPipelineTests(unittest.TestCase):
@@ -20,6 +26,20 @@ class RenderPptxPipelineTests(unittest.TestCase):
         ignored.write_text("skip", encoding="utf-8")
 
         self.assertEqual(scan_supported_files(root), [docx.resolve(), pdf.resolve()])
+
+    def test_scanner_skips_excluded_output_folders(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        source = root / "brief.docx"
+        output = root / "llm_output"
+        output.mkdir()
+        generated = output / "rendered_report_20260415_120000.pptx"
+        source.write_bytes(b"placeholder")
+        generated.write_bytes(b"placeholder")
+
+        self.assertEqual(
+            scan_supported_files(root, excluded_dirs={output}),
+            [source.resolve()],
+        )
 
     def test_parse_presentation_plan_accepts_strict_json(self) -> None:
         plan = parse_presentation_plan(
@@ -58,6 +78,50 @@ class RenderPptxPipelineTests(unittest.TestCase):
         self.assertEqual(options.base_url, "http://localhost:8000/v1")
         self.assertEqual(options.model, "local")
         self.assertEqual(options.goal, "Create a 5-slide briefing")
+
+    def test_render_pptx_rejects_public_arguments(self) -> None:
+        with self.assertRaises(RenderPptxCommandError) as raised:
+            run_render_pptx_command("Create a deck", attached_folder=".")
+
+        self.assertIn("takes no arguments", str(raised.exception))
+        self.assertIn("Usage: /render_pptx", str(raised.exception))
+
+    def test_render_pptx_requires_attached_folder(self) -> None:
+        with self.assertRaises(RenderPptxCommandError) as raised:
+            run_render_pptx_command("")
+
+        self.assertIn("No attached working folder found", str(raised.exception))
+
+    def test_attached_folder_config_forces_child_output_paths(self) -> None:
+        root = Path(tempfile.mkdtemp()).resolve()
+        config_path = root / "config.yaml"
+        config_path.write_text(
+            "base_url: http://localhost:8000/v1\n"
+            "api_key: ''\n"
+            "model: local-model\n",
+            encoding="utf-8",
+        )
+
+        config = build_attached_folder_render_config(root, config_path=str(config_path))
+
+        self.assertIsInstance(config, PipelineConfig)
+        self.assertEqual(config.working_dir, root)
+        self.assertEqual(config.output_dir, root / "llm_output")
+        self.assertEqual(config.normalized_dir, root / "llm_result")
+        self.assertRegex(config.output_filename or "", r"^rendered_report_\d{8}_\d{6}\.pptx$")
+        self.assertEqual(config.llm_base_url, "http://localhost:8000/v1")
+        self.assertEqual(config.llm_api_key, "")
+        self.assertEqual(config.llm_model, "local-model")
+
+    def test_attached_folder_config_requires_config_keys(self) -> None:
+        root = Path(tempfile.mkdtemp()).resolve()
+        config_path = root / "config.yaml"
+        config_path.write_text("base_url: http://localhost:8000/v1\n", encoding="utf-8")
+
+        with self.assertRaises(RenderPptxCommandError) as raised:
+            build_attached_folder_render_config(root, config_path=str(config_path))
+
+        self.assertIn("missing required keys", str(raised.exception))
 
 
 if __name__ == "__main__":

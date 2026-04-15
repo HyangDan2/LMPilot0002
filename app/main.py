@@ -43,7 +43,7 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxRe
     normalized_dir = ensure_dir(config.normalized_dir)
     output_dir = ensure_dir(config.output_dir)
 
-    files = scan_supported_files(working_dir)
+    files = scan_supported_files(working_dir, excluded_dirs={normalized_dir, output_dir})
     if not files:
         raise FileNotFoundError(f"No supported files found in working directory: {working_dir}")
 
@@ -85,7 +85,7 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxRe
     planner_json = output_dir / "planner_output.json"
     save_json(planner_json, plan.to_dict())
 
-    output_pptx = PptxRenderer().render(plan, output_dir)
+    output_pptx = PptxRenderer().render(plan, output_dir, config.output_filename)
     return RenderPptxResult(
         scanned_files=len(files),
         parsed_documents=len(documents),

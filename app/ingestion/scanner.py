@@ -6,7 +6,7 @@ from pathlib import Path
 SUPPORTED_EXTENSIONS = {".pptx", ".docx", ".xlsx", ".pdf"}
 
 
-def scan_supported_files(root: Path) -> list[Path]:
+def scan_supported_files(root: Path, excluded_dirs: set[Path] | None = None) -> list[Path]:
     """Recursively scan root for supported document files."""
 
     root = root.expanduser().resolve()
@@ -15,10 +15,13 @@ def scan_supported_files(root: Path) -> list[Path]:
     if not root.is_dir():
         raise NotADirectoryError(f"Working path is not a directory: {root}")
 
-    files = [
-        path.resolve()
-        for path in root.rglob("*")
-        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS and not path.name.startswith("~$")
-    ]
+    excluded_roots = {path.expanduser().resolve() for path in excluded_dirs or set()}
+    files: list[Path] = []
+    for path in root.rglob("*"):
+        resolved = path.resolve()
+        if any(resolved == excluded or excluded in resolved.parents for excluded in excluded_roots):
+            continue
+        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS and not path.name.startswith("~$"):
+            files.append(resolved)
     return sorted(files, key=lambda path: str(path).lower())
 

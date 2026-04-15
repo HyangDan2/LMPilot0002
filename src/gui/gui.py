@@ -615,7 +615,7 @@ class MainWindow(QMainWindow):
 
     def _try_handle_tool_command(self, display_user_text: str) -> bool:
         try:
-            result = run_tool_command(display_user_text)
+            result = run_tool_command(display_user_text, attached_folder=self._active_attachment_folder())
         except ToolError as exc:
             result = f"Tool error: {exc}"
         if result is None:
@@ -833,6 +833,12 @@ class MainWindow(QMainWindow):
             file_type = file_path.suffix.lower().lstrip(".") or "file"
             lines.append(f'- {self._attachment_display_name(path)} ({file_type})')
         return '\n'.join(lines)
+
+    def _active_attachment_folder(self) -> str | None:
+        roots = [root for root in self._attachment_folder_roots.values() if root]
+        if not roots:
+            return None
+        return roots[-1]
 
     def _attachment_display_name(self, path: str) -> str:
         root = self._attachment_folder_roots.get(path)

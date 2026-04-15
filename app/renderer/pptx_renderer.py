@@ -14,7 +14,7 @@ class RendererError(Exception):
 class PptxRenderer:
     """Deterministic PowerPoint renderer for validated presentation plans."""
 
-    def render(self, plan: PresentationPlan, output_dir: Path) -> Path:
+    def render(self, plan: PresentationPlan, output_dir: Path, output_filename: str | None = None) -> Path:
         try:
             from pptx import Presentation  # type: ignore[import-not-found]
             from pptx.util import Inches, Pt  # type: ignore[import-not-found]
@@ -50,7 +50,8 @@ class PptxRenderer:
                 refs.text = "Image refs: " + ", ".join(slide_plan.image_refs)
                 refs.font.size = Pt(12)
 
-        output_path = output_dir / f"{slugify(plan.title, 'presentation')}.pptx"
+        filename = output_filename or f"{slugify(plan.title, 'presentation')}.pptx"
+        output_path = output_dir / filename
         try:
             presentation.save(str(output_path))
         except Exception as exc:

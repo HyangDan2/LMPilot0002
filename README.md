@@ -28,7 +28,7 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 
   * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
   * `/help` lists the available custom tool commands
-  * `/render_pptx Create a 7-slide executive summary` turns workspace documents into a generated `.pptx`
+  * `/render_pptx` turns the currently attached workspace folder into a generated `.pptx`
 * 📎 Folder attachments
 
   * Attach a workspace folder, then call `/use_file filename instruction` when the model should read one file
@@ -181,30 +181,10 @@ python run.py --config config.yaml
   pip install -r requirements.txt
   ```
 
-  Put source documents in:
+  Attach a workspace folder with **Attach Folder**, then run from the chat input:
 
   ```text
-  data/working/
-  ```
-
-  Configure the planner through environment variables:
-
-  ```bash
-  export LLM_BASE_URL="http://127.0.0.1:8000/v1"
-  export LLM_MODEL="your-model-name"
-  export LLM_API_KEY=""
-  ```
-
-  Run from the chat input:
-
-  ```text
-  /render_pptx Create a 7-slide executive summary
-  ```
-
-  Or pass paths and LLM settings directly:
-
-  ```text
-  /render_pptx --working-dir data/working --normalized-dir data/normalized --output-dir data/outputs --base-url http://127.0.0.1:8000/v1 --model local-model Create a 5-slide briefing
+  /render_pptx
   ```
 
   The same pipeline can run from a terminal:
@@ -216,12 +196,14 @@ python run.py --config config.yaml
   Generated files:
 
   ```text
-  data/normalized/<document-id>.json
-  data/normalized/knowledge_map.md
-  data/normalized/knowledge_map.json
-  data/outputs/planner_output.json
-  data/outputs/<presentation-title>.pptx
+  <attached-folder>/llm_result/<document-id>.json
+  <attached-folder>/llm_result/knowledge_map.md
+  <attached-folder>/llm_result/knowledge_map.json
+  <attached-folder>/llm_output/planner_output.json
+  <attached-folder>/llm_output/rendered_report_YYYYMMDD_HHMMSS.pptx
   ```
+
+  Planner settings are loaded from `config.yaml`. Set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. `/render_pptx` does not accept user arguments.
 
 * **Attachments and images**
 

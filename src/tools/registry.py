@@ -72,9 +72,12 @@ def _run_analyze_image(arguments: dict[str, Any]) -> list[dict[str, Any]]:
 def _run_render_pptx(arguments: dict[str, Any]) -> str:
     argument_text = arguments.get("argument_text", "")
     if not isinstance(argument_text, str):
-        raise ToolError("render_pptx requires a goal string.")
+        raise ToolError("render_pptx argument_text must be a string.")
+    attached_folder = arguments.get("attached_folder")
+    if attached_folder is not None and not isinstance(attached_folder, str):
+        raise ToolError("render_pptx attached_folder must be a string.")
     try:
-        return run_render_pptx_command(argument_text)
+        return run_render_pptx_command(argument_text, attached_folder=attached_folder)
     except RenderPptxCommandError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -185,28 +188,28 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "render_pptx": {
         "name": "render_pptx",
-        "description": "Scan workspace documents, plan slides with an OpenAI-compatible LLM, and render a PPTX.",
+        "description": "Render a PPTX from the currently attached workspace folder.",
         "parameters": {
-            "argument_text": {
+            "attached_folder": {
                 "type": "string",
-                "description": "Optional flags followed by the presentation goal.",
+                "description": "Active attached workspace folder selected in the GUI.",
             },
         },
-        "usage": "/render_pptx Create a 7-slide executive summary",
+        "usage": "/render_pptx",
         "schema": {
             "type": "function",
             "function": {
                 "name": "render_pptx",
-                "description": "Scan workspace documents, plan slides with an OpenAI-compatible LLM, and render a PPTX.",
+                "description": "Render a PPTX from the currently attached workspace folder.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "argument_text": {
+                        "attached_folder": {
                             "type": "string",
-                            "description": "Optional flags followed by the presentation goal.",
+                            "description": "Active attached workspace folder selected in the GUI.",
                         },
                     },
-                    "required": ["argument_text"],
+                    "required": ["attached_folder"],
                 },
             },
         },
@@ -246,7 +249,7 @@ def tool_help_text() -> str:
     return "\n".join(lines)
 
 
-def run_tool_command(command_text: str) -> str | None:
+def run_tool_command(command_text: str, *, attached_folder: str | None = None) -> str | None:
     text = command_text.strip()
     if not text.startswith("/"):
         return None
@@ -254,7 +257,7 @@ def run_tool_command(command_text: str) -> str | None:
     if command.lower() == "help":
         return tool_help_text()
     if command.lower() == "render_pptx":
-        return str(run_tool("render_pptx", {"argument_text": argument_text}))
+        return str(run_tool("render_pptx", {"argument_text": argument_text, "attached_folder": attached_folder}))
     if command.lower() not in {"calc", "calculator"}:
         return None
     return str(run_tool("calculator", {"expression": argument_text}))
