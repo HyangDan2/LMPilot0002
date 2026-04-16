@@ -41,7 +41,11 @@ class OpenAICompatibleClient:
         self._lock = threading.Lock()
         self._stop_requested = False
 
-    def chat_completion(self, messages: list[dict[str, Any]]) -> str:
+    def chat_completion(
+        self,
+        messages: list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+    ) -> str:
         self._validate_for_chat()
         payload: dict[str, Any] = {
             "model": self.settings.model.strip(),
@@ -50,6 +54,8 @@ class OpenAICompatibleClient:
             "max_tokens": self.settings.max_tokens,
             "stream": False,
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
         data = self._request_json("POST", "/chat/completions", payload)
         return self._extract_chat_text(data)
 

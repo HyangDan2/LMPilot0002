@@ -98,6 +98,22 @@ class OpenAICompatibleClientTests(unittest.TestCase):
         self.assertEqual(request["body"]["messages"], [{"role": "user", "content": "Hi"}])
         self.assertFalse(request["body"]["stream"])
 
+    def test_chat_completion_can_request_json_response_format(self) -> None:
+        FakeConnection.responses.append(
+            FakeResponse(200, {"choices": [{"message": {"content": "{}"}}]})
+        )
+        client = self.make_client(
+            OpenAIConnectionSettings(base_url="http://localhost:1234/v1", model="local-model")
+        )
+
+        answer = client.chat_completion(
+            [{"role": "user", "content": "Return JSON"}],
+            response_format={"type": "json_object"},
+        )
+
+        self.assertEqual(answer, "{}")
+        self.assertEqual(FakeConnection.requests[0]["body"]["response_format"], {"type": "json_object"})
+
     def test_stream_chat_completion_posts_streaming_payload(self) -> None:
         FakeConnection.responses.append(
             FakeStreamingResponse(

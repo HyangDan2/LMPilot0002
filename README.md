@@ -203,7 +203,7 @@ python run.py --config config.yaml
   <attached-folder>/llm_output/rendered_report_YYYYMMDD_HHMMSS.pptx
   ```
 
-  Planner settings are loaded from `config.yaml`. Set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. HTTPS verification is enabled by default; for trusted internal endpoints with self-signed certificates, set `ca_bundle` to a certificate bundle path or set `verify_ssl: false`. `/render_pptx` does not accept user arguments.
+  In the GUI, planner settings come from the active Base URL, API Key, and Model Name fields. For terminal usage, settings are loaded from `config.yaml`; set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. `/render_pptx` uses the same OpenAI-compatible HTTP transport as normal chat. `/render_pptx` does not accept user arguments.
 
 * **Attachments and images**
 

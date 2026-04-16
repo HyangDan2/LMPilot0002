@@ -76,8 +76,15 @@ def _run_render_pptx(arguments: dict[str, Any]) -> str:
     attached_folder = arguments.get("attached_folder")
     if attached_folder is not None and not isinstance(attached_folder, str):
         raise ToolError("render_pptx attached_folder must be a string.")
+    connection_settings = arguments.get("connection_settings")
+    if connection_settings is not None and not isinstance(connection_settings, dict):
+        raise ToolError("render_pptx connection_settings must be an object.")
     try:
-        return run_render_pptx_command(argument_text, attached_folder=attached_folder)
+        return run_render_pptx_command(
+            argument_text,
+            attached_folder=attached_folder,
+            connection_settings=connection_settings,
+        )
     except RenderPptxCommandError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -249,7 +256,12 @@ def tool_help_text() -> str:
     return "\n".join(lines)
 
 
-def run_tool_command(command_text: str, *, attached_folder: str | None = None) -> str | None:
+def run_tool_command(
+    command_text: str,
+    *,
+    attached_folder: str | None = None,
+    connection_settings: dict[str, Any] | None = None,
+) -> str | None:
     text = command_text.strip()
     if not text.startswith("/"):
         return None
@@ -257,7 +269,16 @@ def run_tool_command(command_text: str, *, attached_folder: str | None = None) -
     if command.lower() == "help":
         return tool_help_text()
     if command.lower() == "render_pptx":
-        return str(run_tool("render_pptx", {"argument_text": argument_text, "attached_folder": attached_folder}))
+        return str(
+            run_tool(
+                "render_pptx",
+                {
+                    "argument_text": argument_text,
+                    "attached_folder": attached_folder,
+                    "connection_settings": connection_settings,
+                },
+            )
+        )
     if command.lower() not in {"calc", "calculator"}:
         return None
     return str(run_tool("calculator", {"expression": argument_text}))

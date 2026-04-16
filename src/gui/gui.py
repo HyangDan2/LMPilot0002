@@ -618,8 +618,18 @@ class MainWindow(QMainWindow):
         self._start_worker(model_prompt)
 
     def _try_handle_tool_command(self, display_user_text: str) -> bool:
+        settings = self._apply_connection_settings()
         try:
-            result = run_tool_command(display_user_text, attached_folder=self._active_attachment_folder())
+            result = run_tool_command(
+                display_user_text,
+                attached_folder=self._active_attachment_folder(),
+                connection_settings={
+                    "base_url": settings.base_url,
+                    "api_key": settings.api_key,
+                    "model": settings.model,
+                    "timeout": settings.timeout,
+                },
+            )
         except ToolError as exc:
             result = f"Tool error: {exc}"
         if result is None:

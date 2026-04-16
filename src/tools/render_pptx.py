@@ -39,6 +39,7 @@ def run_render_pptx_command(
     *,
     attached_folder: str | None = None,
     config_path: str = DEFAULT_CONFIG_PATH,
+    connection_settings: dict[str, Any] | None = None,
 ) -> str:
     """Run the render_pptx pipeline from the active attached folder."""
 
@@ -61,7 +62,11 @@ def run_render_pptx_command(
         raise RenderPptxCommandError(f"No supported input files found in working folder: {working_folder}")
 
     try:
-        config = build_attached_folder_render_config(working_folder, config_path=config_path)
+        config = build_attached_folder_render_config(
+            working_folder,
+            config_path=config_path,
+            connection_settings=connection_settings,
+        )
         result = render_pptx_pipeline(DEFAULT_RENDER_GOAL, config)
     except RenderPptxCommandError:
         raise
@@ -89,8 +94,17 @@ def build_attached_folder_render_config(
     working_folder: Path,
     *,
     config_path: str = DEFAULT_CONFIG_PATH,
+    connection_settings: dict[str, Any] | None = None,
 ) -> PipelineConfig:
-    settings = load_render_settings_from_config(config_path)
+    settings = load_render_settings_from_config(config_path, required=connection_settings is None)
+    if connection_settings:
+        settings.update(_settings_from_connection(connection_settings))
+    missing = [key for key in ("base_url", "model") if not str(settings.get(key, "")).strip()]
+    if missing:
+        raise RenderPptxCommandError(
+            f"Missing render planner settings: {', '.join(missing)}. "
+            "Enter Base URL and Model Name in the GUI or set them in config.yaml."
+        )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return PipelineConfig(
         working_dir=working_folder,
@@ -101,14 +115,14 @@ def build_attached_folder_render_config(
         llm_api_key=settings["api_key"],
         llm_model=settings["model"],
         timeout=float(settings.get("timeout", 120.0)),
-        verify_ssl=bool(settings.get("verify_ssl", True)),
-        ca_bundle=str(settings.get("ca_bundle", "")).strip(),
     )
 
 
-def load_render_settings_from_config(config_path: str) -> dict[str, Any]:
+def load_render_settings_from_config(config_path: str, *, required: bool = True) -> dict[str, Any]:
     path = Path(config_path)
     if not path.exists():
+        if not required:
+            return {}
         raise RenderPptxCommandError(f"{path} not found. Create config.yaml first.")
 
     try:
@@ -129,7 +143,7 @@ def load_render_settings_from_config(config_path: str) -> dict[str, Any]:
         for key, aliases in key_aliases.items()
         if not any(alias in raw for alias in aliases)
     ]
-    if missing_keys:
+    if required and missing_keys:
         raise RenderPptxCommandError(f"config.yaml is missing required keys: {', '.join(missing_keys)}")
 
     values = {
@@ -137,21 +151,28 @@ def load_render_settings_from_config(config_path: str) -> dict[str, Any]:
         "api_key": str(raw.get("api_key", raw.get("openai_api_key", ""))),
         "model": str(raw.get("model", raw.get("openai_model", ""))).strip(),
         "timeout": raw.get("response_timeout", raw.get("timeout", 120.0)),
-        "verify_ssl": _parse_bool(raw.get("verify_ssl", raw.get("ssl_verify", True))),
-        "ca_bundle": str(raw.get("ca_bundle", raw.get("ssl_ca_bundle", ""))).strip(),
     }
     missing = [key for key in ("base_url", "model") if not values[key]]
-    if missing:
+    if required and missing:
         raise RenderPptxCommandError(f"config.yaml has empty required values: {', '.join(missing)}")
     return values
 
 
-def _parse_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return True
-    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+def _settings_from_connection(connection_settings: dict[str, Any]) -> dict[str, Any]:
+    settings: dict[str, Any] = {}
+    for key in ("base_url", "api_key", "model", "timeout"):
+        if key not in connection_settings:
+            continue
+        value = connection_settings[key]
+        if value is None:
+            continue
+        if key == "timeout":
+            settings[key] = value
+            continue
+        text_value = str(value).strip()
+        if text_value or key == "api_key":
+            settings[key] = text_value
+    return settings
 
 
 def run_render_pptx_command_from_arguments(argument_text: str) -> str:
