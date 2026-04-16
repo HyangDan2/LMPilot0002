@@ -79,6 +79,8 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxRe
             api_key=config.llm_api_key,
             model=config.llm_model,
             timeout=config.timeout,
+            verify_ssl=config.verify_ssl,
+            ca_bundle=config.ca_bundle,
         )
     )
     plan = create_presentation_plan(client, goal, knowledge_map_markdown)
@@ -128,4 +130,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

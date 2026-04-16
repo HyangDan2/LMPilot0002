@@ -20,12 +20,14 @@ class RenderPptxPipelineTests(unittest.TestCase):
         nested.mkdir()
         docx = root / "brief.docx"
         pdf = nested / "report.pdf"
+        pptx = nested / "slides.pptx"
         ignored = root / "notes.txt"
         docx.write_bytes(b"placeholder")
         pdf.write_bytes(b"placeholder")
+        pptx.write_bytes(b"placeholder")
         ignored.write_text("skip", encoding="utf-8")
 
-        self.assertEqual(scan_supported_files(root), [docx.resolve(), pdf.resolve()])
+        self.assertEqual(scan_supported_files(root), [docx.resolve(), pdf.resolve(), pptx.resolve()])
 
     def test_scanner_skips_excluded_output_folders(self) -> None:
         root = Path(tempfile.mkdtemp())
@@ -112,6 +114,25 @@ class RenderPptxPipelineTests(unittest.TestCase):
         self.assertEqual(config.llm_base_url, "http://localhost:8000/v1")
         self.assertEqual(config.llm_api_key, "")
         self.assertEqual(config.llm_model, "local-model")
+        self.assertTrue(config.verify_ssl)
+        self.assertEqual(config.ca_bundle, "")
+
+    def test_attached_folder_config_supports_ssl_options(self) -> None:
+        root = Path(tempfile.mkdtemp()).resolve()
+        config_path = root / "config.yaml"
+        config_path.write_text(
+            "base_url: https://localhost:8000/v1\n"
+            "api_key: test\n"
+            "model: local-model\n"
+            "verify_ssl: false\n"
+            "ca_bundle: /tmp/internal-ca.pem\n",
+            encoding="utf-8",
+        )
+
+        config = build_attached_folder_render_config(root, config_path=str(config_path))
+
+        self.assertFalse(config.verify_ssl)
+        self.assertEqual(config.ca_bundle, "/tmp/internal-ca.pem")
 
     def test_attached_folder_config_requires_config_keys(self) -> None:
         root = Path(tempfile.mkdtemp()).resolve()
@@ -126,4 +147,3 @@ class RenderPptxPipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

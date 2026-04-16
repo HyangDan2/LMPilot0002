@@ -444,6 +444,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, 'Attach Folder', str(exc))
             return
 
+        self._attached_file_paths.clear()
+        self._attachment_folder_roots.clear()
+        self.attachment_list.clear()
+
         root = str(Path(folder).expanduser().resolve())
         existing_paths = set(self._attached_file_paths)
         failures: list[str] = []

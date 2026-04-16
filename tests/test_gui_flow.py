@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -120,6 +121,48 @@ class GuiFlowTests(unittest.TestCase):
 
         window.close()
         process_events(self.app, 5)
+
+    def test_attach_folder_replaces_existing_attachment_list(self) -> None:
+        console = FakeConsole()
+        db_path = Path(tempfile.mkdtemp()) / "app.db"
+        first_folder = Path(tempfile.mkdtemp())
+        second_folder = Path(tempfile.mkdtemp())
+        first_file = first_folder / "first.txt"
+        second_file = second_folder / "second.pptx"
+        first_file.write_text("first", encoding="utf-8")
+        _write_sample_pptx(second_file)
+
+        window = MainWindow(
+            console,
+            ChatRepository(str(db_path)),
+            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
+        )
+
+        with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(first_folder)):
+            window.on_attach_files()
+        self.assertEqual(window._attached_file_paths, [str(first_file.resolve())])
+
+        with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(second_folder)):
+            window.on_attach_files()
+
+        self.assertEqual(window._attached_file_paths, [str(second_file.resolve())])
+        self.assertEqual(window.attachment_list.count(), 1)
+        self.assertIn("second.pptx", window.attachment_list.item(0).text())
+
+        window.close()
+        process_events(self.app, 5)
+
+def _write_sample_pptx(path: Path) -> None:
+    try:
+        from pptx import Presentation
+    except ModuleNotFoundError as exc:
+        raise unittest.SkipTest("python-pptx is not installed") from exc
+
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "Deck"
+    slide.placeholders[1].text = "Body"
+    presentation.save(str(path))
 
 
 if __name__ == "__main__":

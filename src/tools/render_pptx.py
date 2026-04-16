@@ -101,6 +101,8 @@ def build_attached_folder_render_config(
         llm_api_key=settings["api_key"],
         llm_model=settings["model"],
         timeout=float(settings.get("timeout", 120.0)),
+        verify_ssl=bool(settings.get("verify_ssl", True)),
+        ca_bundle=str(settings.get("ca_bundle", "")).strip(),
     )
 
 
@@ -135,11 +137,21 @@ def load_render_settings_from_config(config_path: str) -> dict[str, Any]:
         "api_key": str(raw.get("api_key", raw.get("openai_api_key", ""))),
         "model": str(raw.get("model", raw.get("openai_model", ""))).strip(),
         "timeout": raw.get("response_timeout", raw.get("timeout", 120.0)),
+        "verify_ssl": _parse_bool(raw.get("verify_ssl", raw.get("ssl_verify", True))),
+        "ca_bundle": str(raw.get("ca_bundle", raw.get("ssl_ca_bundle", ""))).strip(),
     }
     missing = [key for key in ("base_url", "model") if not values[key]]
     if missing:
         raise RenderPptxCommandError(f"config.yaml has empty required values: {', '.join(missing)}")
     return values
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return True
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
 
 
 def run_render_pptx_command_from_arguments(argument_text: str) -> str:
@@ -210,4 +222,3 @@ def parse_render_pptx_arguments(argument_text: str) -> RenderPptxCommandOptions:
             "Create a 7-slide executive summary"
         )
     return RenderPptxCommandOptions(goal=goal, **values)
-

@@ -17,6 +17,8 @@ class PipelineConfig:
     llm_api_key: str = ""
     llm_model: str = ""
     timeout: float = 120.0
+    verify_ssl: bool = True
+    ca_bundle: str = ""
 
 
 def load_config(
@@ -39,5 +41,14 @@ def load_config(
         llm_api_key=llm_api_key or os.environ.get("LLM_API_KEY", ""),
         llm_model=llm_model or os.environ.get("LLM_MODEL", ""),
         timeout=float(os.environ.get("LLM_TIMEOUT", "120")),
+        verify_ssl=_parse_bool(os.environ.get("LLM_VERIFY_SSL", "true")),
+        ca_bundle=os.environ.get("LLM_CA_BUNDLE", ""),
     )
 
+
+def _parse_bool(value: str | bool | None) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return True
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}

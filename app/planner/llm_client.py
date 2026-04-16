@@ -14,6 +14,8 @@ class LLMSettings:
     api_key: str = ""
     model: str = ""
     timeout: float = 120.0
+    verify_ssl: bool = True
+    ca_bundle: str = ""
 
 
 class OpenAICompatibleLLMClient:
@@ -45,7 +47,23 @@ class OpenAICompatibleLLMClient:
             raise LLMClientError("Planner HTTP calls require the requests package.") from exc
 
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=self.settings.timeout)
+            verify: bool | str = self.settings.verify_ssl
+            if self.settings.verify_ssl and self.settings.ca_bundle.strip():
+                verify = self.settings.ca_bundle.strip()
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=self.settings.timeout,
+                verify=verify,
+            )
+        except requests.exceptions.SSLError as exc:
+            raise LLMClientError(
+                "Planner HTTPS certificate verification failed. "
+                "If this is a trusted internal or self-signed endpoint, set verify_ssl: false in config.yaml "
+                "or set ca_bundle to the certificate bundle path. "
+                f"Original error: {exc}"
+            ) from exc
         except requests.RequestException as exc:
             raise LLMClientError(f"Planner request failed: {exc}") from exc
 

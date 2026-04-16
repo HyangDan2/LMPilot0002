@@ -21,6 +21,7 @@ SUPPORTED_EXTENSIONS = {
     ".log",
     ".pdf",
     ".docx",
+    ".pptx",
     ".png",
     ".jpg",
     ".jpeg",
@@ -28,7 +29,7 @@ SUPPORTED_EXTENSIONS = {
     ".webp",
 }
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
-PLAIN_TEXT_EXTENSIONS = SUPPORTED_EXTENSIONS - {".pdf", ".docx"} - IMAGE_EXTENSIONS
+PLAIN_TEXT_EXTENSIONS = SUPPORTED_EXTENSIONS - {".pdf", ".docx", ".pptx"} - IMAGE_EXTENSIONS
 
 
 class AttachmentError(Exception):
@@ -78,6 +79,8 @@ def extract_text_from_file(path: str, image_mode: ImageMode = "auto") -> Extract
         text = _read_pdf(file_path)
     elif suffix == ".docx":
         text = _read_docx(file_path)
+    elif suffix == ".pptx":
+        text = _read_pptx(file_path)
     else:
         text = _read_image(file_path, image_mode)
 
@@ -145,6 +148,31 @@ def _read_docx(path: Path) -> str:
         return "\n".join(paragraphs)
     except Exception as exc:
         raise AttachmentError(f"Failed to extract DOCX text: {exc}") from exc
+
+
+def _read_pptx(path: Path) -> str:
+    try:
+        from pptx import Presentation  # type: ignore[import-not-found]
+    except Exception as exc:
+        raise AttachmentError("PPTX extraction requires the optional 'python-pptx' package.") from exc
+
+    try:
+        presentation = Presentation(str(path))
+        slides: list[str] = []
+        for slide_number, slide in enumerate(presentation.slides, start=1):
+            texts: list[str] = []
+            for shape in slide.shapes:
+                if not getattr(shape, "has_text_frame", False):
+                    continue
+                for paragraph in shape.text_frame.paragraphs:
+                    paragraph_text = paragraph.text.strip()
+                    if paragraph_text:
+                        texts.append(paragraph_text)
+            if texts:
+                slides.append(f"[Slide {slide_number}]\n" + "\n".join(texts))
+        return "\n\n".join(slides)
+    except Exception as exc:
+        raise AttachmentError(f"Failed to extract PPTX text: {exc}") from exc
 
 
 def _read_image(path: Path, image_mode: ImageMode) -> str:

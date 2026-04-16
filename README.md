@@ -203,11 +203,11 @@ python run.py --config config.yaml
   <attached-folder>/llm_output/rendered_report_YYYYMMDD_HHMMSS.pptx
   ```
 
-  Planner settings are loaded from `config.yaml`. Set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. `/render_pptx` does not accept user arguments.
+  Planner settings are loaded from `config.yaml`. Set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. HTTPS verification is enabled by default; for trusted internal endpoints with self-signed certificates, set `ca_bundle` to a certificate bundle path or set `verify_ssl: false`. `/render_pptx` does not accept user arguments.
 
 * **Attachments and images**
 
-  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files directly inside that selected folder; subfolders are not scanned. Files are not automatically included in every prompt. Double-click an attached file to insert its filename into the input box. To use the selected attachments, type:
+  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files directly inside that selected folder, including `.pptx`; subfolders are not scanned. Selecting a new folder replaces the previous attachment list. Files are not automatically included in every prompt. Double-click an attached file to insert its filename into the input box. To use the selected attachments, type:
 
   ```text
   /use_file example.txt summarize this file
