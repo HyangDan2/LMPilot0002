@@ -628,6 +628,8 @@ class MainWindow(QMainWindow):
                     "api_key": settings.api_key,
                     "model": settings.model,
                     "timeout": settings.timeout,
+                    "planner_intermediate_max_tokens": settings.max_tokens,
+                    "planner_final_max_tokens": settings.max_tokens,
                 },
             )
         except ToolError as exc:

@@ -9,8 +9,8 @@ from app.ingestion.dispatcher import parse_document
 from app.ingestion.parsers.base import ParserError
 from app.ingestion.scanner import scan_supported_files
 from app.models.schemas import ParsedDocument
-from app.planner.llm_client import LLMSettings, OpenAICompatibleLLMClient
-from app.planner.planner import create_presentation_plan
+from app.planner.chunked_planner import ChunkedPlannerSettings, create_chunked_presentation_plan
+from app.planner.llm_client import LLMSettings
 from app.renderer.pptx_renderer import PptxRenderer
 from app.transform.knowledge_map import build_knowledge_map, render_knowledge_map_markdown
 from app.utils.io import ensure_dir, save_json, save_text
@@ -29,6 +29,10 @@ class RenderPptxResult:
     planner_json: Path
     output_pptx: Path
     parse_errors: list[str]
+    planner_summary_json: Path | None = None
+    planner_attempts_json: Path | None = None
+    planner_chunk_count: int = 0
+    planner_fallback_count: int = 0
 
 
 def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxResult:
@@ -73,15 +77,28 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxRe
     knowledge_map_markdown = render_knowledge_map_markdown(knowledge_map)
     save_text(knowledge_map_md, knowledge_map_markdown)
 
-    client = OpenAICompatibleLLMClient(
-        LLMSettings(
+    planner_result = create_chunked_presentation_plan(
+        llm_settings=LLMSettings(
             base_url=config.llm_base_url,
             api_key=config.llm_api_key,
             model=config.llm_model,
             timeout=config.timeout,
-        )
+            max_tokens=config.planner_intermediate_max_tokens,
+        ),
+        planner_settings=ChunkedPlannerSettings(
+            chunk_chars=config.planner_chunk_chars,
+            min_chunk_chars=config.planner_min_chunk_chars,
+            max_retries=config.planner_max_retries,
+            intermediate_max_tokens=config.planner_intermediate_max_tokens,
+            final_max_tokens=config.planner_final_max_tokens,
+            allow_response_format_retry=config.planner_allow_response_format_retry,
+            enable_local_fallback=config.planner_enable_local_fallback,
+        ),
+        user_goal=goal,
+        knowledge_map_md=knowledge_map_markdown,
+        artifact_dir=normalized_dir,
     )
-    plan = create_presentation_plan(client, goal, knowledge_map_markdown)
+    plan = planner_result.plan
     planner_json = output_dir / "planner_output.json"
     save_json(planner_json, plan.to_dict())
 
@@ -95,6 +112,10 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxRe
         planner_json=planner_json,
         output_pptx=output_pptx,
         parse_errors=parse_errors,
+        planner_summary_json=planner_result.summary_json,
+        planner_attempts_json=planner_result.attempts_json,
+        planner_chunk_count=planner_result.chunk_count,
+        planner_fallback_count=planner_result.fallback_count,
     )
 
 

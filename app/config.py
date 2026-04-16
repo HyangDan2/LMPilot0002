@@ -17,6 +17,13 @@ class PipelineConfig:
     llm_api_key: str = ""
     llm_model: str = ""
     timeout: float = 120.0
+    planner_chunk_chars: int = 6000
+    planner_min_chunk_chars: int = 800
+    planner_max_retries: int = 3
+    planner_intermediate_max_tokens: int = 1024
+    planner_final_max_tokens: int = 2048
+    planner_allow_response_format_retry: bool = True
+    planner_enable_local_fallback: bool = True
 
 
 def load_config(
@@ -39,4 +46,21 @@ def load_config(
         llm_api_key=llm_api_key or os.environ.get("LLM_API_KEY", ""),
         llm_model=llm_model or os.environ.get("LLM_MODEL", ""),
         timeout=float(os.environ.get("LLM_TIMEOUT", "120")),
+        planner_chunk_chars=int(os.environ.get("PLANNER_CHUNK_CHARS", "6000")),
+        planner_min_chunk_chars=int(os.environ.get("PLANNER_MIN_CHUNK_CHARS", "800")),
+        planner_max_retries=int(os.environ.get("PLANNER_MAX_RETRIES", "3")),
+        planner_intermediate_max_tokens=int(os.environ.get("PLANNER_INTERMEDIATE_MAX_TOKENS", "1024")),
+        planner_final_max_tokens=int(os.environ.get("PLANNER_FINAL_MAX_TOKENS", "2048")),
+        planner_allow_response_format_retry=_parse_bool(
+            os.environ.get("PLANNER_ALLOW_RESPONSE_FORMAT_RETRY", "true")
+        ),
+        planner_enable_local_fallback=_parse_bool(os.environ.get("PLANNER_ENABLE_LOCAL_FALLBACK", "true")),
     )
+
+
+def _parse_bool(value: str | bool | None) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return True
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}

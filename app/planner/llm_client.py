@@ -19,6 +19,7 @@ class LLMSettings:
     api_key: str = ""
     model: str = ""
     timeout: float = 120.0
+    max_tokens: int = 1024
 
 
 class OpenAICompatibleLLMClient:
@@ -33,14 +34,15 @@ class OpenAICompatibleLLMClient:
                 model=settings.model,
                 temperature=0,
                 timeout=settings.timeout,
+                max_tokens=settings.max_tokens,
             )
         )
 
-    def chat_completion(self, messages: list[dict[str, str]]) -> str:
+    def chat_completion(self, messages: list[dict[str, str]], *, response_format: bool = True) -> str:
         try:
             return self._client.chat_completion(
                 messages,
-                response_format={"type": "json_object"},
+                response_format={"type": "json_object"} if response_format else None,
             )
         except GuiLLMClientError as exc:
             raise LLMClientError(f"Planner request failed: {exc}") from exc

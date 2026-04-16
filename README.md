@@ -203,7 +203,7 @@ python run.py --config config.yaml
   <attached-folder>/llm_output/rendered_report_YYYYMMDD_HHMMSS.pptx
   ```
 
-  In the GUI, planner settings come from the active Base URL, API Key, and Model Name fields. For terminal usage, settings are loaded from `config.yaml`; set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. `/render_pptx` uses the same OpenAI-compatible HTTP transport as normal chat. `/render_pptx` does not accept user arguments.
+  In the GUI, planner settings come from the active Base URL, API Key, and Model Name fields. For terminal usage, settings are loaded from `config.yaml`; set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. `/render_pptx` uses the same OpenAI-compatible HTTP transport as normal chat. Planning is adaptive: the app summarizes the knowledge map in chunks, recursively splits failed chunks into smaller work, retries without JSON response-format enforcement when needed, and can write local fallback summaries for chunks that still fail. Tune `planner_chunk_chars`, `planner_min_chunk_chars`, `planner_max_retries`, `planner_intermediate_max_tokens`, and `planner_final_max_tokens` for smaller local backends. `/render_pptx` does not accept user arguments.
 
 * **Attachments and images**
 

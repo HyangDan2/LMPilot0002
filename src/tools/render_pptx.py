@@ -82,9 +82,15 @@ def run_render_pptx_command(
         f"Parsed documents: {result.parsed_documents}",
         f"Knowledge map: {result.knowledge_map_md}",
         f"Knowledge map JSON: {result.knowledge_map_json}",
+        f"Planner chunks: {result.planner_chunk_count}",
+        f"Planner fallbacks: {result.planner_fallback_count}",
         f"Planner JSON: {result.planner_json}",
         f"Output PPTX: {result.output_pptx}",
     ]
+    if result.planner_summary_json is not None:
+        lines.append(f"Planner chunk summary: {result.planner_summary_json}")
+    if result.planner_attempts_json is not None:
+        lines.append(f"Planner attempts: {result.planner_attempts_json}")
     if result.parse_errors:
         lines.append(f"Skipped files: {len(result.parse_errors)}")
     return "\n".join(lines)
@@ -115,6 +121,13 @@ def build_attached_folder_render_config(
         llm_api_key=settings["api_key"],
         llm_model=settings["model"],
         timeout=float(settings.get("timeout", 120.0)),
+        planner_chunk_chars=int(settings.get("planner_chunk_chars", 6000)),
+        planner_min_chunk_chars=int(settings.get("planner_min_chunk_chars", 800)),
+        planner_max_retries=int(settings.get("planner_max_retries", 3)),
+        planner_intermediate_max_tokens=int(settings.get("planner_intermediate_max_tokens", 1024)),
+        planner_final_max_tokens=int(settings.get("planner_final_max_tokens", 2048)),
+        planner_allow_response_format_retry=bool(settings.get("planner_allow_response_format_retry", True)),
+        planner_enable_local_fallback=bool(settings.get("planner_enable_local_fallback", True)),
     )
 
 
@@ -151,6 +164,13 @@ def load_render_settings_from_config(config_path: str, *, required: bool = True)
         "api_key": str(raw.get("api_key", raw.get("openai_api_key", ""))),
         "model": str(raw.get("model", raw.get("openai_model", ""))).strip(),
         "timeout": raw.get("response_timeout", raw.get("timeout", 120.0)),
+        "planner_chunk_chars": raw.get("planner_chunk_chars", 6000),
+        "planner_min_chunk_chars": raw.get("planner_min_chunk_chars", 800),
+        "planner_max_retries": raw.get("planner_max_retries", 3),
+        "planner_intermediate_max_tokens": raw.get("planner_intermediate_max_tokens", 1024),
+        "planner_final_max_tokens": raw.get("planner_final_max_tokens", 2048),
+        "planner_allow_response_format_retry": _parse_bool(raw.get("planner_allow_response_format_retry", True)),
+        "planner_enable_local_fallback": _parse_bool(raw.get("planner_enable_local_fallback", True)),
     }
     missing = [key for key in ("base_url", "model") if not values[key]]
     if required and missing:
@@ -169,10 +189,21 @@ def _settings_from_connection(connection_settings: dict[str, Any]) -> dict[str, 
         if key == "timeout":
             settings[key] = value
             continue
+        if key.startswith("planner_"):
+            settings[key] = value
+            continue
         text_value = str(value).strip()
         if text_value or key == "api_key":
             settings[key] = text_value
     return settings
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return True
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
 
 
 def run_render_pptx_command_from_arguments(argument_text: str) -> str:
