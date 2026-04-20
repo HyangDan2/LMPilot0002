@@ -207,7 +207,7 @@ python run.py --config config.yaml
   Main report command:
 
   ```text
-  /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]
+  /generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]
   ```
 
   Examples:
@@ -218,7 +218,15 @@ python run.py --config config.yaml
   /generate_report --no-llm summarize briefly
   ```
 
-  `/generate_report` runs the complete document-report pipeline. You do not need to run `/extract_docs`, `/build_doc_map`, or `/chunk_sections` first. Each run rebuilds fresh artifacts from the attached folder, then performs extraction, document mapping, chunking, output planning, compact evidence selection, and one final LLM Markdown call. It does not run LLM summarization chunk by chunk. Progress updates stream into the chat while the tool runs; when the configured backend supports streaming, the final Markdown report streams into the Tool block while also being accumulated and saved as `generated_report.md`. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
+  `/generate_report` runs the complete engineering-report pipeline. You do not need to run `/extract_docs` or `/build_doc_map` first. The command scans the attached folder, reuses unchanged extraction artifacts when possible, then performs document mapping, output planning, compact evidence selection, and one final LLM Markdown call. Use `--fresh` to force full re-extraction. Progress updates and per-stage timings stream into the chat while the tool runs; when the configured backend supports streaming, the final Markdown report streams into the Tool block while also being accumulated and saved as `generated_report.md`. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
+
+  The generated engineering report uses three top-level sections:
+
+  ```text
+  Summary
+  Source Documents
+  Open Issues and Next Actions
+  ```
 
   Slash tools run in background workers so the GUI stays responsive. A session can run only one slash tool at a time, but other sessions can run their own slash tools while `/generate_report` is active. Stop cancels the currently selected session's running slash tool or normal generation. Document-pipeline artifacts are still saved to shared paths under the attached folder, so simultaneous report commands against the same folder use last-writer-wins files.
 
@@ -228,15 +236,13 @@ python run.py --config config.yaml
   extracted_documents.json
   extraction_manifest.json
   document_map.json
-  chunks.json
   output_plan.json
-  llm_chunk_summaries.json
-  llm_section_summaries.json
+  selected_evidence.json
   llm_report_attempts.json
   generated_report.md
   ```
 
-  The LLM orchestration does not send every chunk in one prompt. It summarizes chunk batches within `--llm-input-chars`, reduces those summaries by output-plan section, then asks the model for a final Markdown report. This keeps the final report path usable with smaller local models.
+  The LLM orchestration sends compact selected evidence within `--llm-input-chars` and asks the model for a concise engineering report. Lower `--llm-input-chars` for smaller local models.
 
   Other useful tools:
 
@@ -245,7 +251,6 @@ python run.py --config config.yaml
   /workspace_status
   /extract_docs
   /build_doc_map
-  /chunk_sections [--max-chars N]
   /generate_markdown
   ```
 

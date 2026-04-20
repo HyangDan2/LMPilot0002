@@ -204,7 +204,7 @@ def generate_report_command(
     args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
-    goal, llm_input_chars, use_llm = _parse_generate_report_args(args)
+    goal, llm_input_chars, use_llm, force_refresh = _parse_generate_report_args(args)
     context.reset_for_folder(root) if context.working_folder != root else None
     llm_client = _make_llm_client(context) if use_llm else None
     result = generate_report_pipeline(
@@ -212,6 +212,7 @@ def generate_report_command(
         goal=goal,
         llm_client=llm_client,
         llm_input_chars=llm_input_chars,
+        force_refresh=force_refresh,
         progress=progress,
         cancel_event=context.cancel_event,
     )
@@ -229,7 +230,11 @@ def generate_report_command(
         f"- plan_sections: {len(result.output_plan.sections)}",
         f"- llm_input_chars: {llm_input_chars}",
         f"- llm_used: {'yes' if result.used_llm else 'no'}",
+        f"- extraction_cache_used: {'yes' if result.extraction_cache_used else 'no'}",
         f"- goal: {result.output_plan.goal}",
+        "",
+        "Timings:",
+        *[f"- {label}: {value:.2f}s" for label, value in result.timings.items()],
     ]
     if result.fallback_reason:
         lines.append(f"- fallback_reason: {result.fallback_reason}")
@@ -254,10 +259,11 @@ def _ensure_documents(root: Path, context: SlashToolContext) -> None:
         raise SlashToolError(f"Could not load extracted_documents.json: {exc}") from exc
 
 
-def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool]:
-    goal = "Generate a grounded markdown report from the attached workspace documents."
+def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool, bool]:
+    goal = "Generate a concise engineering report from the attached workspace documents."
     llm_input_chars = 12000
     use_llm = True
+    force_refresh = False
     query_parts: list[str] = []
     index = 0
     while index < len(args):
@@ -266,9 +272,13 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool]:
             use_llm = False
             index += 1
             continue
+        if token == "--fresh":
+            force_refresh = True
+            index += 1
+            continue
         if token == "--llm-input-chars":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--no-llm] [--llm-input-chars N] [query...]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]")
             try:
                 llm_input_chars = int(args[index + 1])
             except ValueError as exc:
@@ -278,7 +288,7 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool]:
             index += 2
         elif token == "--goal":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--no-llm] [--llm-input-chars N] [query...]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]")
             goal = " ".join(args[index + 1 :]).strip()
             break
         else:
@@ -286,7 +296,7 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool]:
             break
     if query_parts:
         goal = " ".join(query_parts).strip()
-    return goal, llm_input_chars, use_llm
+    return goal, llm_input_chars, use_llm, force_refresh
 
 
 def _make_llm_client(context: SlashToolContext):

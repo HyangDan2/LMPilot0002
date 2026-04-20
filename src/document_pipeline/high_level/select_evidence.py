@@ -5,6 +5,28 @@ import re
 from src.document_pipeline.schemas import ExtractedBlock, ExtractedDocument, OutputPlan, SelectedEvidence
 from src.document_pipeline.schemas import SelectedEvidenceBlock
 
+ENGINEERING_TERMS = {
+    "analysis",
+    "calculation",
+    "constraint",
+    "design",
+    "failure",
+    "issue",
+    "performance",
+    "requirement",
+    "result",
+    "risk",
+    "spec",
+    "test",
+    "validation",
+    "검증",
+    "결과",
+    "리스크",
+    "성능",
+    "요구",
+}
+NUMBER_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:%|mm|cm|m|kg|g|ms|s|sec|min|h|hr|v|a|w|kw|kwh|pa|kpa|mpa|hz|rpm|°c|c)?\b", re.IGNORECASE)
+
 
 def select_evidence_blocks(
     documents: list[ExtractedDocument],
@@ -25,8 +47,11 @@ def select_evidence_blocks(
 
     selected: list[SelectedEvidenceBlock] = []
     used_chars = 0
+    per_document_counts: dict[str, int] = {}
     budget = max(800, max_input_chars)
     for block in ordered:
+        if per_document_counts.get(block.document_id, 0) >= 6 and len(per_document_counts) > 1:
+            continue
         document = docs_by_id.get(block.document_id)
         source_filename = document.source.filename if document is not None else ""
         text = _block_text(block)
@@ -43,6 +68,7 @@ def select_evidence_blocks(
         if selected and used_chars + formatted_len > budget:
             break
         selected.append(evidence)
+        per_document_counts[block.document_id] = per_document_counts.get(block.document_id, 0) + 1
         used_chars += formatted_len
     if not selected:
         block = blocks[0]
@@ -90,6 +116,13 @@ def _block_score(block: ExtractedBlock, terms: set[str], planned_block_ids: list
     for term in terms:
         if term in text:
             score += 3
+    for term in ENGINEERING_TERMS:
+        if term in text:
+            score += 2
+    if NUMBER_RE.search(text):
+        score += 3
+    if block.type in {"table"} or block.rows or block.markdown:
+        score += 2
     if block.role in {"title", "heading", "section"}:
         score += 1
     return score

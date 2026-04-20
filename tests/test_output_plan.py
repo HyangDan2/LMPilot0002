@@ -2,35 +2,40 @@ import unittest
 from pathlib import Path
 
 from src.document_pipeline.high_level import generate_output_plan, write_output_plan
-from src.document_pipeline.mid_level import build_doc_map, chunk_sections
+from src.document_pipeline.high_level.select_evidence import select_evidence_blocks
+from src.document_pipeline.mid_level import build_doc_map
 from src.document_pipeline.schemas import DocumentMetadata, ExtractedBlock, ExtractedDocument, Provenance, SourceInfo
 
 
 class OutputPlanTests(unittest.TestCase):
-    def test_write_output_plan_assigns_chunks_and_goal(self) -> None:
+    def test_write_output_plan_uses_three_engineering_sections(self) -> None:
         document = _sample_document()
         doc_map = build_doc_map([document])
-        chunks = chunk_sections([document])
 
-        plan = write_output_plan([document], doc_map, chunks, goal="Prepare project summary")
+        plan = write_output_plan([document], doc_map, goal="Prepare project summary")
 
         self.assertEqual(plan.goal, "Prepare project summary")
         self.assertEqual(plan.source_document_ids, ["doc_report"])
-        self.assertTrue(plan.sections)
-        self.assertIn(chunks[0].chunk_id, plan.sections[0].source_chunk_ids)
+        self.assertEqual(
+            [section.title for section in plan.sections],
+            ["Summary", "Source Documents", "Open Issues and Next Actions"],
+        )
+        self.assertIn("blk_001", plan.sections[0].source_block_ids)
 
     def test_generate_output_plan_uses_grounded_evidence(self) -> None:
         document = _sample_document()
         doc_map = build_doc_map([document])
-        chunks = chunk_sections([document])
-        plan = write_output_plan([document], doc_map, chunks)
+        plan = write_output_plan([document], doc_map)
+        selected_evidence = select_evidence_blocks([document], plan, plan.goal)
 
-        markdown = generate_output_plan(plan, [document], doc_map, chunks)
+        markdown = generate_output_plan(plan, [document], doc_map, selected_evidence)
 
-        self.assertIn("# Report for Report", markdown)
+        self.assertIn("# Engineering Report for Report", markdown)
+        self.assertIn("## Summary", markdown)
+        self.assertIn("## Source Documents", markdown)
+        self.assertIn("## Open Issues and Next Actions", markdown)
         self.assertIn("Revenue grew by 10%.", markdown)
-        self.assertIn("output_plan.json", markdown)
-        self.assertIn("Claims without extracted evidence", markdown)
+        self.assertNotIn("## Provenance", markdown)
 
 
 def _sample_document() -> ExtractedDocument:

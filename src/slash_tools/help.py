@@ -28,19 +28,16 @@ Extract all supported documents from the attached folder.
 /build_doc_map
 Build a structural document map from the latest /extract_docs result. If needed, it loads saved extracted_documents.json.
 
-/chunk_sections [--max-chars N]
-Build retrieval chunks from the latest /extract_docs result. If needed, it loads saved extracted_documents.json.
-
 /workspace_status
 Show which document-pipeline artifacts are available in the attached folder.
 
 /generate_markdown
 Generate a deterministic markdown report from extracted evidence.
 
-/generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]
-Run extraction, mapping, chunking, output planning, compact evidence selection, and one final LLM Markdown call in one step.
-No prerequisite slash command is required. It always rebuilds fresh artifacts from the attached folder.
-Progress and final Markdown stream into the chat while generated_report.md is saved.
+/generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]
+Run extraction, mapping, output planning, compact evidence selection, and one final engineering Markdown call in one step.
+No prerequisite slash command is required. It reuses unchanged extraction artifacts unless --fresh is provided.
+Progress, timings, and final Markdown stream into the chat while generated_report.md is saved.
 Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
 
 Examples:
@@ -59,18 +56,15 @@ Suggested flow:
 Advanced evidence flow:
 1. Run /extract_docs.
 2. Run /build_doc_map.
-3. Run /chunk_sections.
-4. Run /generate_markdown.
+3. Run /generate_markdown.
 
 Automatic saved outputs:
 - /extract_docs saves llm_result/document_pipeline/extracted_documents.json
 - /extract_docs saves llm_result/document_pipeline/extraction_manifest.json
 - /extract_single_doc saves llm_result/document_pipeline/documents/DOCUMENT_ID.json
 - /build_doc_map saves llm_result/document_pipeline/document_map.json
-- /chunk_sections saves llm_result/document_pipeline/chunks.json
 - /generate_report saves llm_result/document_pipeline/output_plan.json
-- /generate_report saves llm_result/document_pipeline/llm_chunk_summaries.json
-- /generate_report saves llm_result/document_pipeline/llm_section_summaries.json
+- /generate_report saves llm_result/document_pipeline/selected_evidence.json
 - /generate_report saves llm_result/document_pipeline/llm_report_attempts.json
 - /generate_markdown saves llm_result/document_pipeline/generated_report.md
 - /generate_report saves llm_result/document_pipeline/generated_report.md

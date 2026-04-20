@@ -98,7 +98,7 @@ def _write_final_markdown(
         {
             "role": "system",
             "content": (
-                "You write grounded Markdown reports from extracted evidence. "
+                "You write concise engineering reports from extracted evidence. "
                 "Return Markdown only. Do not invent unsupported facts. Cite block IDs and source filenames."
             ),
         },
@@ -166,15 +166,19 @@ def _final_markdown_prompt(
         "selected_evidence": evidence_packet,
     }
     return (
-        "Write the final report as Markdown only.\n\n"
+        "Write the final report as Markdown only, using a concise engineering-report tone.\n\n"
         "Requirements:\n"
-        "- Start with one H1 title.\n"
-        "- Follow the output plan sections.\n"
+        "- Start with exactly one H1 title.\n"
+        "- Use exactly these H2 sections in this order: Summary, Source Documents, Open Issues and Next Actions.\n"
         "- Focus on the report query.\n"
         "- Use only the selected evidence packet.\n"
-        "- Explain the reasoning that connects evidence to the answer.\n"
-        "- Cite block IDs and source filenames when making concrete claims.\n"
-        "- State gaps when evidence is missing.\n\n"
+        "- In Summary, synthesize technical findings, constraints, data, risks, and recommendations supported by evidence.\n"
+        "- In Source Documents, include a compact traceability table for the source files.\n"
+        "- In Open Issues and Next Actions, separate missing evidence, unclear assumptions, parser limitations, and concrete follow-up checks.\n"
+        "- Distinguish facts from assumptions and gaps.\n"
+        "- Include quantitative findings when evidence contains numbers, tests, specs, or results.\n"
+        "- Cite source filename and block ID for concrete claims.\n"
+        "- Do not add extra H2 sections.\n\n"
         f"Grounded report material:\n{_truncate(json.dumps(payload, ensure_ascii=False, indent=2), max_input_chars)}"
     )
 

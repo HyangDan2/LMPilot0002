@@ -17,6 +17,8 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/generate_markdown", result.text)
         self.assertIn("/generate_report", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
+        self.assertIn("selected_evidence.json", result.text)
+        self.assertNotIn("llm_chunk_summaries.json", result.text)
 
     def test_non_slash_prompt_is_not_handled(self) -> None:
         self.assertIsNone(run_slash_command("hello", None, SlashToolContext()))
@@ -67,21 +69,17 @@ class SlashDocumentToolsTests(unittest.TestCase):
         assert result is not None
         self.assertIn("Extracted 0 document(s)", result.text)
 
-    def test_build_doc_map_and_chunk_sections_auto_save_from_context(self) -> None:
+    def test_build_doc_map_auto_saves_from_context(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             context = SlashToolContext(working_folder=root, documents=[_sample_document(root)])
 
             doc_map_result = run_slash_command("/build_doc_map", root, context)
-            chunks_result = run_slash_command("/chunk_sections --max-chars 400", root, context)
 
             self.assertTrue((root / "llm_result" / "document_pipeline" / "document_map.json").exists())
-            self.assertTrue((root / "llm_result" / "document_pipeline" / "chunks.json").exists())
 
         assert doc_map_result is not None
-        assert chunks_result is not None
         self.assertIn("Built document map", doc_map_result.text)
-        self.assertIn("Built retrieval chunks", chunks_result.text)
 
     def test_workspace_status_reports_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -120,22 +118,22 @@ class SlashDocumentToolsTests(unittest.TestCase):
             extracted_path = root / "llm_result" / "document_pipeline" / "extracted_documents.json"
             manifest_path = root / "llm_result" / "document_pipeline" / "extraction_manifest.json"
             doc_map_path = root / "llm_result" / "document_pipeline" / "document_map.json"
-            chunks_path = root / "llm_result" / "document_pipeline" / "chunks.json"
             plan_path = root / "llm_result" / "document_pipeline" / "output_plan.json"
-            chunk_summaries_path = root / "llm_result" / "document_pipeline" / "llm_chunk_summaries.json"
-            section_summaries_path = root / "llm_result" / "document_pipeline" / "llm_section_summaries.json"
+            selected_evidence_path = root / "llm_result" / "document_pipeline" / "selected_evidence.json"
             attempts_path = root / "llm_result" / "document_pipeline" / "llm_report_attempts.json"
             report_path = root / "llm_result" / "document_pipeline" / "generated_report.md"
             self.assertTrue(extracted_path.exists())
             self.assertTrue(manifest_path.exists())
             self.assertTrue(doc_map_path.exists())
-            self.assertTrue(chunks_path.exists())
             self.assertTrue(plan_path.exists())
-            self.assertTrue(chunk_summaries_path.exists())
-            self.assertTrue(section_summaries_path.exists())
+            self.assertTrue(selected_evidence_path.exists())
             self.assertTrue(attempts_path.exists())
             self.assertTrue(report_path.exists())
             self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["goal"], "summarize about demo summary")
+            self.assertEqual(
+                [section["title"] for section in json.loads(plan_path.read_text(encoding="utf-8"))["sections"]],
+                ["Summary", "Source Documents", "Open Issues and Next Actions"],
+            )
             self.assertIsNotNone(context.doc_map)
 
         assert result is not None
@@ -143,11 +141,23 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("Automatically ran:", result.text)
         self.assertIn("- extract_docs", result.text)
         self.assertIn("- build_doc_map", result.text)
-        self.assertIn("- chunk_sections", result.text)
+        self.assertIn("- select_evidence_blocks", result.text)
         self.assertIn("- write_output_plan", result.text)
         self.assertIn("llm_used: no", result.text)
+        self.assertIn("extraction_cache_used: no", result.text)
+        self.assertIn("Timings:", result.text)
         self.assertIn("output_plan.json", result.text)
         self.assertIn("generated_report.md", result.text)
+
+    def test_generate_report_fresh_flag_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context = SlashToolContext()
+
+            result = run_slash_command("/generate_report --fresh summarize briefly", root, context)
+
+        assert result is not None
+        self.assertIn("Generated report", result.text)
 
 
 def _sample_document(root: Path) -> ExtractedDocument:

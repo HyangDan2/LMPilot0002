@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, OutputPlan, SelectedEvidence
 
 
@@ -13,48 +11,45 @@ def generate_output_plan(
 ) -> str:
     """Write a deterministic markdown fallback from output plan and selected blocks."""
 
-    lines = [
-        f"# {output_plan.title}",
-        "",
-        f"Goal: {output_plan.goal}",
-        "",
-        "This report is generated from extracted evidence only. Claims without extracted evidence are left as gaps.",
-        "",
-    ]
+    lines = [f"# {output_plan.title}", ""]
     for section in output_plan.sections:
-        if section.section_id == "overview":
-            lines.extend(_overview_section(documents, section.title))
+        if section.section_id == "summary":
+            lines.extend(_summary_section(section.title, selected_evidence))
         elif section.section_id == "source_documents":
             lines.extend(_source_documents_section(documents, section.title))
-        elif section.section_id == "key_evidence":
-            lines.extend(_selected_evidence_section(section.title, selected_evidence))
-        elif section.section_id == "provenance":
-            lines.extend(_provenance_section(section.title, documents, doc_map, selected_evidence))
-        elif section.section_id == "gaps":
-            lines.extend(_gaps_section(section.title, documents, selected_evidence))
+        elif section.section_id == "open_issues":
+            lines.extend(_open_issues_section(section.title, documents, selected_evidence))
         else:
-            lines.extend(_selected_evidence_section(section.title, selected_evidence))
+            lines.extend(_summary_section(section.title, selected_evidence))
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _overview_section(documents: list[ExtractedDocument], title: str) -> list[str]:
-    block_count = sum(len(document.blocks) for document in documents)
-    asset_count = sum(len(document.assets) for document in documents)
-    return [
-        f"## {title}",
-        "",
-        f"- Documents processed: {len(documents)}",
-        f"- Extracted blocks: {block_count}",
-        f"- Extracted assets: {asset_count}",
-        "",
-    ]
+def _summary_section(title: str, selected_evidence: SelectedEvidence | None) -> list[str]:
+    lines = [f"## {title}", ""]
+    blocks = selected_evidence.blocks if selected_evidence is not None else []
+    if not blocks:
+        lines.extend(
+            [
+                "- No selected evidence blocks are available, so no engineering findings can be stated yet.",
+                "- Attach supported source documents or refresh extraction before using this report externally.",
+                "",
+            ]
+        )
+        return lines
+    for block in blocks[:8]:
+        source = f"{block.source_filename} / {block.block_id}".strip(" /")
+        lines.append(f"- {_single_line(block.text, 320)} (`{source}`)")
+    if len(blocks) > 8:
+        lines.append(f"- {len(blocks) - 8} additional evidence block(s) were omitted from this fallback summary.")
+    lines.append("")
+    return lines
 
 
 def _source_documents_section(documents: list[ExtractedDocument], title: str) -> list[str]:
     lines = [
         f"## {title}",
         "",
-        "| Document | Type | Blocks | Assets |",
+        "| Source | Type | Blocks | Assets |",
         "|---|---:|---:|---:|",
     ]
     if not documents:
@@ -71,66 +66,7 @@ def _source_documents_section(documents: list[ExtractedDocument], title: str) ->
     return lines
 
 
-def _selected_evidence_section(title: str, selected_evidence: SelectedEvidence | None) -> list[str]:
-    lines = [f"## {title}", ""]
-    blocks = selected_evidence.blocks if selected_evidence is not None else []
-    if not blocks:
-        lines.extend(["_No selected evidence blocks are available._", ""])
-        return lines
-    for index, block in enumerate(blocks[:12], start=1):
-        lines.extend(
-            [
-                f"### Evidence {index}",
-                "",
-                f"- source: `{block.source_filename}`",
-                f"- block_id: `{block.block_id}`",
-                f"- role: {block.role}",
-                "",
-                _quote_block(_single_line(block.text, 700)),
-                "",
-            ]
-        )
-    if len(blocks) > 12:
-        lines.append(f"_ {len(blocks) - 12} more selected evidence block(s) omitted._")
-    return lines
-
-
-def _provenance_section(
-    title: str,
-    documents: list[ExtractedDocument],
-    doc_map: DocumentMap | None,
-    selected_evidence: SelectedEvidence | None,
-) -> list[str]:
-    lines = [
-        f"## {title}",
-        "",
-        "Saved pipeline artifacts:",
-        "",
-        "- `llm_result/document_pipeline/extracted_documents.json`",
-        "- `llm_result/document_pipeline/extraction_manifest.json`",
-        "- `llm_result/document_pipeline/document_map.json`",
-        "- `llm_result/document_pipeline/output_plan.json`",
-        "- `llm_result/document_pipeline/selected_evidence.json`",
-        "- `llm_result/document_pipeline/generated_report.md`",
-        "",
-        "Source paths:",
-    ]
-    if documents:
-        lines.extend(f"- `{_display_path(document.source.path)}`" for document in documents)
-    else:
-        lines.append("- none")
-    lines.extend(
-        [
-            "",
-            f"Document-map blocks: {len(doc_map.blocks) if doc_map is not None else 0}",
-            f"Selected evidence blocks: {len(selected_evidence.blocks) if selected_evidence is not None else 0}",
-            "",
-        ]
-    )
-    return lines
-
-
-def _gaps_section(
+def _open_issues_section(
     title: str,
     documents: list[ExtractedDocument],
     selected_evidence: SelectedEvidence | None,
@@ -145,7 +81,8 @@ def _gaps_section(
         if document.warnings:
             gaps.extend(f"{document.source.filename}: {warning}" for warning in document.warnings)
     if not gaps:
-        gaps.append("No extraction warnings were recorded. Review selected evidence before using the report externally.")
+        gaps.append("Review cited evidence before using this engineering report externally.")
+        gaps.append("Verify any assumptions, calculations, and recommendations against source documents.")
     lines.extend(f"- {gap}" for gap in gaps)
     lines.append("")
     return lines
@@ -158,13 +95,5 @@ def _single_line(text: str, max_chars: int) -> str:
     return text[: max_chars - 3].rstrip() + "..."
 
 
-def _quote_block(text: str) -> str:
-    return "\n".join(f"> {line}" if line else ">" for line in text.splitlines())
-
-
 def _escape_table(text: str) -> str:
     return text.replace("|", "\\|")
-
-
-def _display_path(path: str) -> str:
-    return Path(path).name if path else ""

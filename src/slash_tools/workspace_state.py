@@ -13,14 +13,11 @@ class WorkspaceState:
     extracted_documents_path: str | None = None
     extraction_manifest_path: str | None = None
     document_map_path: str | None = None
-    chunks_path: str | None = None
     output_plan_path: str | None = None
-    chunk_summaries_path: str | None = None
-    section_summaries_path: str | None = None
+    selected_evidence_path: str | None = None
     report_attempts_path: str | None = None
     generated_markdown_path: str | None = None
     document_count: int = 0
-    chunk_count: int = 0
     next_actions: list[str] = field(default_factory=list)
 
     def to_text(self) -> str:
@@ -34,10 +31,8 @@ class WorkspaceState:
             f"- extracted_documents.json: {_found(self.extracted_documents_path, self.document_count, 'document(s)')}",
             f"- extraction_manifest.json: {_found(self.extraction_manifest_path)}",
             f"- document_map.json: {_found(self.document_map_path)}",
-            f"- chunks.json: {_found(self.chunks_path, self.chunk_count, 'chunk(s)')}",
             f"- output_plan.json: {_found(self.output_plan_path)}",
-            f"- llm_chunk_summaries.json: {_found(self.chunk_summaries_path)}",
-            f"- llm_section_summaries.json: {_found(self.section_summaries_path)}",
+            f"- selected_evidence.json: {_found(self.selected_evidence_path)}",
             f"- llm_report_attempts.json: {_found(self.report_attempts_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
         ]
@@ -53,18 +48,14 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     extracted_path = output_dir / "extracted_documents.json"
     manifest_path = output_dir / "extraction_manifest.json"
     doc_map_path = output_dir / "document_map.json"
-    chunks_path = output_dir / "chunks.json"
     output_plan_path = output_dir / "output_plan.json"
-    chunk_summaries_path = output_dir / "llm_chunk_summaries.json"
-    section_summaries_path = output_dir / "llm_section_summaries.json"
+    selected_evidence_path = output_dir / "selected_evidence.json"
     attempts_path = output_dir / "llm_report_attempts.json"
     report_path = output_dir / "generated_report.md"
     document_count = _document_count(extracted_path)
-    chunk_count = _chunk_count(chunks_path)
     next_actions = _next_actions(
         has_documents=extracted_path.exists() and document_count > 0,
         has_map=doc_map_path.exists(),
-        has_chunks=chunks_path.exists(),
         has_output_plan=output_plan_path.exists(),
         has_report=report_path.exists(),
     )
@@ -73,14 +64,11 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         extracted_documents_path=_path_if_exists(extracted_path, root),
         extraction_manifest_path=_path_if_exists(manifest_path, root),
         document_map_path=_path_if_exists(doc_map_path, root),
-        chunks_path=_path_if_exists(chunks_path, root),
         output_plan_path=_path_if_exists(output_plan_path, root),
-        chunk_summaries_path=_path_if_exists(chunk_summaries_path, root),
-        section_summaries_path=_path_if_exists(section_summaries_path, root),
+        selected_evidence_path=_path_if_exists(selected_evidence_path, root),
         report_attempts_path=_path_if_exists(attempts_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
         document_count=document_count,
-        chunk_count=chunk_count,
         next_actions=next_actions,
     )
 
@@ -105,21 +93,9 @@ def _document_count(path: Path) -> int:
     return len(documents) if isinstance(documents, list) else 0
 
 
-def _chunk_count(path: Path) -> int:
-    if not path.exists():
-        return 0
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 0
-    chunks = payload.get("chunks") if isinstance(payload, dict) else None
-    return len(chunks) if isinstance(chunks, list) else 0
-
-
 def _next_actions(
     has_documents: bool,
     has_map: bool,
-    has_chunks: bool,
     has_output_plan: bool,
     has_report: bool,
 ) -> list[str]:
@@ -127,8 +103,6 @@ def _next_actions(
         return ["/generate_report summarize all output in this folder", "/extract_docs"]
     if not has_map:
         return ["/generate_report summarize all output in this folder", "/build_doc_map"]
-    if not has_chunks:
-        return ["/generate_report summarize all output in this folder", "/chunk_sections"]
     if not has_output_plan or not has_report:
         return ["/generate_report summarize all output in this folder"]
     return ["Ask a normal question about the generated report", "Re-run /extract_docs if source files changed"]

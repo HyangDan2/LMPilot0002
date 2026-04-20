@@ -3,7 +3,7 @@ from __future__ import annotations
 from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, OutputPlan, OutputPlanSection
 
 
-DEFAULT_REPORT_GOAL = "Generate a grounded markdown report from the attached workspace documents."
+DEFAULT_REPORT_GOAL = "Generate a concise engineering report from the attached workspace documents."
 OUTPUT_PLAN_SCHEMA_VERSION = "0.1"
 
 
@@ -18,38 +18,28 @@ def write_output_plan(
     title = _plan_title(documents)
     sections = [
         OutputPlanSection(
-            section_id="overview",
-            title="Overview",
-            purpose="State the report goal and summarize available source coverage.",
-            source_block_ids=all_block_ids[:5],
-            max_chars=1000,
-        ),
-        OutputPlanSection(
-            section_id="source_documents",
-            title="Source Documents",
-            purpose="List source files, document types, block counts, and reusable assets.",
-            source_block_ids=all_block_ids[:10],
-            max_chars=1200,
-        ),
-        OutputPlanSection(
-            section_id="key_evidence",
-            title="Key Evidence",
-            purpose="Surface the strongest extracted evidence blocks without inventing facts.",
+            section_id="summary",
+            title="Summary",
+            purpose=(
+                "Provide a concise engineering summary of supported technical content, findings, "
+                "constraints, data, risks, and recommendations."
+            ),
             source_block_ids=all_block_ids[:12],
             max_chars=2200,
         ),
         OutputPlanSection(
-            section_id="provenance",
-            title="Provenance",
-            purpose="Explain where the report evidence came from and which artifacts were created.",
-            source_block_ids=all_block_ids,
-            max_chars=1400,
+            section_id="source_documents",
+            title="Source Documents",
+            purpose="List source files used for traceability without exposing pipeline internals.",
+            source_block_ids=all_block_ids[:10],
+            max_chars=1000,
         ),
         OutputPlanSection(
-            section_id="gaps",
-            title="Gaps and Next Checks",
-            purpose="Name missing evidence, parser limitations, and useful follow-up checks.",
-            max_chars=1000,
+            section_id="open_issues",
+            title="Open Issues and Next Actions",
+            purpose="Name missing evidence, unclear assumptions, parser limitations, and concrete follow-up actions.",
+            source_block_ids=all_block_ids,
+            max_chars=1400,
         ),
     ]
     return OutputPlan(
@@ -64,7 +54,7 @@ def write_output_plan(
 def _plan_title(documents: list[ExtractedDocument]) -> str:
     if len(documents) == 1:
         title = documents[0].metadata.title or documents[0].source.filename
-        return f"Report for {title}"
+        return f"Engineering Report for {title}"
     if documents:
-        return f"Workspace Report for {len(documents)} Documents"
-    return "Workspace Report"
+        return f"Engineering Report for {len(documents)} Documents"
+    return "Engineering Report"
