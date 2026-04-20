@@ -27,7 +27,7 @@ from .workspace_state import load_workspace_state
 
 
 def detect_file_type_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     if len(args) != 1:
@@ -51,7 +51,7 @@ def detect_file_type_command(
 
 
 def read_file_info_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     if len(args) != 1:
@@ -73,7 +73,7 @@ def read_file_info_command(
 
 
 def normalize_text_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     if not args:
         raise SlashToolError("Usage: /normalize_text <text>")
@@ -81,7 +81,7 @@ def normalize_text_command(
 
 
 def extract_single_doc_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     if len(args) != 1:
@@ -108,7 +108,9 @@ def extract_single_doc_command(
     )
 
 
-def extract_docs_command(args: list[str], working_folder: str | Path | None, context: SlashToolContext) -> SlashToolResult:
+def extract_docs_command(
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
+) -> SlashToolResult:
     root = require_working_folder(working_folder)
     if args:
         raise SlashToolError("Usage: /extract_docs")
@@ -135,7 +137,7 @@ def extract_docs_command(args: list[str], working_folder: str | Path | None, con
 
 
 def build_doc_map_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     if args:
@@ -160,7 +162,7 @@ def build_doc_map_command(
 
 
 def chunk_sections_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     max_chars = _parse_max_chars(args)
@@ -184,7 +186,7 @@ def chunk_sections_command(
 
 
 def workspace_status_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     if args:
@@ -198,7 +200,7 @@ def workspace_status_command(
 
 
 def generate_markdown_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     if args:
@@ -228,7 +230,7 @@ def generate_markdown_command(
 
 
 def generate_report_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     goal, max_chars, llm_input_chars, use_llm = _parse_generate_report_args(args)
@@ -240,6 +242,7 @@ def generate_report_command(
         max_chunk_chars=max_chars,
         llm_client=llm_client,
         llm_input_chars=llm_input_chars,
+        progress=progress,
     )
     context.documents = result.documents
     context.doc_map = result.doc_map

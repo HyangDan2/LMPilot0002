@@ -40,6 +40,7 @@ Generate a deterministic markdown report from extracted evidence.
 /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]
 Run extraction, mapping, chunking, output planning, context-safe LLM orchestration, and final Markdown report generation in one step.
 No prerequisite slash command is required. It always rebuilds fresh artifacts from the attached folder.
+Progress and final Markdown stream into the chat while generated_report.md is saved.
 
 Examples:
   /generate_report summarize all output in this folder
@@ -80,7 +81,7 @@ Not included yet:
 """
 
 
-def help_command(args, working_folder, context) -> SlashToolResult:
+def help_command(args, working_folder, context, progress=None) -> SlashToolResult:
     return SlashToolResult(
         text=HELP_TEXT,
         tool_name="/help",

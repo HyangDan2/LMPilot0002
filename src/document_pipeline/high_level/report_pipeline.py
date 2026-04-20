@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from src.document_pipeline.mid_level import ExtractionContext, build_doc_map, chunk_sections, extract_docs
 from src.document_pipeline.schemas import DocumentMap, EvidenceChunk, ExtractedDocument, OutputPlan
@@ -19,6 +20,8 @@ from src.document_pipeline.storage import (
 
 from .generate_report import ReportLLMClient, generate_report
 from .write_output_plan import DEFAULT_REPORT_GOAL, write_output_plan
+
+ProgressCallback = Callable[[str, str], None]
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,7 @@ def generate_report_pipeline(
     max_chunk_chars: int = 2400,
     llm_client: ReportLLMClient | None = None,
     llm_input_chars: int = 12000,
+    progress: ProgressCallback | None = None,
 ) -> GenerateReportResult:
     """Run the full report pipeline from source files and save every artifact.
 
@@ -49,10 +53,19 @@ def generate_report_pipeline(
     """
 
     root = working_folder.expanduser().resolve()
+    _emit(progress, "status", "[1/6] Extracting documents...\n")
     documents = extract_docs(root, ExtractionContext(working_folder=root))
+    _emit(progress, "status", f"Extracted {len(documents)} document(s).\n")
+    _emit(progress, "status", "[2/6] Building document map...\n")
     doc_map = build_doc_map(documents)
+    _emit(progress, "status", f"Mapped {len(doc_map.blocks)} block(s).\n")
+    _emit(progress, "status", "[3/6] Building retrieval chunks...\n")
     chunks = chunk_sections(documents, max_chars=max_chunk_chars)
+    _emit(progress, "status", f"Created {len(chunks)} chunk(s).\n")
+    _emit(progress, "status", "[4/6] Writing output plan...\n")
     output_plan = write_output_plan(documents, doc_map, chunks, goal=goal)
+    _emit(progress, "status", f"Created {len(output_plan.sections)} output-plan section(s).\n")
+    _emit(progress, "status", "[5/6] Running report synthesis...\n")
     report = generate_report(
         output_plan,
         documents,
@@ -61,7 +74,9 @@ def generate_report_pipeline(
         llm_client=llm_client,
         report_query=goal,
         max_input_chars=llm_input_chars,
+        progress=progress,
     )
+    _emit(progress, "status", "[6/6] Saving report artifacts...\n")
     saved_files = [
         save_extracted_documents(root, documents),
         save_manifest(root, documents),
@@ -73,6 +88,7 @@ def generate_report_pipeline(
         save_report_attempts(root, report.attempts),
         save_generated_markdown(root, report.markdown),
     ]
+    _emit(progress, "status", f"Saved {len(saved_files)} artifact(s).\n")
     return GenerateReportResult(
         documents=documents,
         doc_map=doc_map,
@@ -90,3 +106,8 @@ def generate_report_pipeline(
         ],
         saved_files=saved_files,
     )
+
+
+def _emit(progress: ProgressCallback | None, kind: str, text: str) -> None:
+    if progress is not None and text:
+        progress(kind, text)

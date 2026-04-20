@@ -130,6 +130,7 @@ class ChatWorker(QObject):
 
 
 class SlashToolWorker(QObject):
+    progress = Signal(int, str, str)
     finished = Signal(int, object, object)
     error = Signal(int, str)
     done = Signal(int)
@@ -150,7 +151,15 @@ class SlashToolWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            result = run_slash_command(self.command_text, self.working_folder, self.context)
+            def emit_progress(kind: str, text: str) -> None:
+                self.progress.emit(self.session_id, kind, text)
+
+            result = run_slash_command(
+                self.command_text,
+                self.working_folder,
+                self.context,
+                progress=emit_progress,
+            )
             if result is None:
                 result = error_result("empty slash command", "/unknown")
             self.finished.emit(self.session_id, result, self.context)
@@ -178,6 +187,7 @@ class ActiveSlashTool:
     thread: QThread
     worker: SlashToolWorker
     command_text: str
+    stream_parts: list[str] = field(default_factory=list)
 
 
 class ConnectionTestWorker(QObject):
@@ -214,6 +224,7 @@ class MainWindow(QMainWindow):
         self._streaming_assistant_started = False
         self._streaming_block_start: int | None = None
         self._reasoning_placeholder_start: int | None = None
+        self._tool_stream_block_start: int | None = None
         self._attached_file_paths: list[str] = []
         self._attachment_folder_roots: dict[str, str] = {}
         self._slash_tool_context = SlashToolContext()
@@ -733,13 +744,31 @@ class MainWindow(QMainWindow):
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.progress.connect(self._on_slash_tool_progress)
         worker.finished.connect(self._on_slash_tool_success)
         worker.error.connect(self._on_slash_tool_error)
         worker.done.connect(self._quit_slash_tool_thread)
         thread.finished.connect(self._cleanup_slash_tool_worker)
         thread.start()
         self._set_status('Running slash tool...')
+        if self.current_session_id == session_id:
+            self._start_tool_stream_block()
+            self._append_tool_stream_text(f"Running {command_text}\n\n")
+        if self._active_slash_tool is not None:
+            self._active_slash_tool.stream_parts.append(f"Running {command_text}\n\n")
         self._reload_sessions()
+
+    @Slot(int, str, str)
+    def _on_slash_tool_progress(self, session_id: int, kind: str, text: str) -> None:
+        active = self._active_slash_tool
+        if active is None or active.session_id != session_id or not text:
+            return
+        formatted = text if kind == "markdown" else text
+        active.stream_parts.append(formatted)
+        if self.current_session_id == session_id:
+            self._append_tool_stream_text(formatted)
+            if kind == "status":
+                self._set_status(text.strip()[:120] or "Running slash tool...")
 
     @Slot(int, object, object)
     def _on_slash_tool_success(
@@ -751,7 +780,8 @@ class MainWindow(QMainWindow):
         self._slash_tool_context.replace_from(updated_context)
         self.repository.add_message(session_id, 'tool', result.history_text)
         if self.current_session_id == session_id:
-            self._append_block('Tool', result.text)
+            self._append_tool_stream_text("\n" + result.text + "\n\n")
+            self._finish_tool_stream_block()
             self._set_status('Tool complete')
         else:
             self._set_status('Slash tool complete')
@@ -762,7 +792,8 @@ class MainWindow(QMainWindow):
     def _on_slash_tool_error(self, session_id: int, error_text: str) -> None:
         self.repository.add_message(session_id, 'tool', f'Tool error: {error_text}')
         if self.current_session_id == session_id:
-            self._append_block('Tool', f'Tool error: {error_text}')
+            self._append_tool_stream_text(f"\nTool error: {error_text}\n\n")
+            self._finish_tool_stream_block()
         self._set_status('Tool error')
         self._reload_sessions()
         self._refresh_controls()
@@ -806,6 +837,7 @@ class MainWindow(QMainWindow):
         self._streaming_assistant_started = False
         self._streaming_block_start = None
         self._reasoning_placeholder_start = None
+        self._tool_stream_block_start = None
         thread = QThread()
         console = self._create_generation_console(settings)
         worker = ChatWorker(session_id, console, prompt_text)
@@ -1027,7 +1059,9 @@ class MainWindow(QMainWindow):
                 self._show_reasoning_placeholder()
             self._set_status('Generating response...')
         elif self._active_slash_tool is not None and self._active_slash_tool.session_id == session_id:
-            self._append_block('System', f"Slash tool running: {self._active_slash_tool.command_text}")
+            self._start_tool_stream_block()
+            stream_text = ''.join(self._active_slash_tool.stream_parts)
+            self._append_tool_stream_text(stream_text or f"Running {self._active_slash_tool.command_text}\n\n")
             self._set_status('Running slash tool...')
         else:
             self._set_status('Idle')
@@ -1108,6 +1142,37 @@ class MainWindow(QMainWindow):
         cursor.insertText(f'[{role}]\n')
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
+
+    def _start_tool_stream_block(self) -> None:
+        if self._tool_stream_block_start is not None:
+            return
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self._tool_stream_block_start = cursor.position()
+        cursor.insertText('[Tool]\n')
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+
+    def _append_tool_stream_text(self, text: str) -> None:
+        text = normalize_text_for_display(text)
+        text = strip_unsupported_chars(text)
+        if self._tool_stream_block_start is None:
+            self._start_tool_stream_block()
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertText(text)
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+
+    def _finish_tool_stream_block(self) -> None:
+        if self._tool_stream_block_start is None:
+            return
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertText('\n')
+        self.chat_view.setTextCursor(cursor)
+        self.chat_view.ensureCursorVisible()
+        self._tool_stream_block_start = None
 
     def _show_reasoning_placeholder(self) -> None:
         if self._streaming_assistant_started or self._reasoning_placeholder_start is not None:

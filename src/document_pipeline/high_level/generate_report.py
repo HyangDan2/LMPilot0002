@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from src.document_pipeline.schemas import (
     ChunkSummary,
@@ -14,6 +14,8 @@ from src.document_pipeline.schemas import (
 )
 
 from .generate_output_plan import generate_output_plan
+
+ProgressCallback = Callable[[str, str], None]
 
 
 class ReportLLMClient(Protocol):
@@ -33,13 +35,16 @@ def generate_report(
     llm_client: ReportLLMClient | None,
     report_query: str = "",
     max_input_chars: int = 12000,
+    progress: ProgressCallback | None = None,
 ) -> LLMReportResult:
     """Generate final markdown with context-safe LLM orchestration."""
 
     query = report_query.strip() or output_plan.goal
     attempts: list[dict[str, Any]] = []
     if llm_client is None:
+        _emit(progress, "status", "LLM client is not configured. Using deterministic fallback report.\n")
         markdown = generate_output_plan(output_plan, documents, doc_map, chunks)
+        _emit(progress, "markdown", markdown)
         return LLMReportResult(
             markdown=markdown,
             attempts=[{"stage": "final", "status": "fallback", "error": "LLM client is not configured."}],
@@ -55,6 +60,7 @@ def generate_report(
             query=query,
             max_input_chars=max_input_chars,
             attempts=attempts,
+            progress=progress,
         )
         section_summaries = _summarize_sections(
             llm_client=llm_client,
@@ -63,6 +69,7 @@ def generate_report(
             query=query,
             max_input_chars=max_input_chars,
             attempts=attempts,
+            progress=progress,
         )
         markdown = _write_final_markdown(
             llm_client=llm_client,
@@ -72,6 +79,7 @@ def generate_report(
             query=query,
             max_input_chars=max_input_chars,
             attempts=attempts,
+            progress=progress,
         )
         return LLMReportResult(
             markdown=markdown,
@@ -82,6 +90,8 @@ def generate_report(
         )
     except Exception as exc:
         markdown = generate_output_plan(output_plan, documents, doc_map, chunks)
+        _emit(progress, "status", f"LLM report orchestration failed. Using deterministic fallback: {exc}\n")
+        _emit(progress, "markdown", markdown)
         attempts.append({"stage": "pipeline", "status": "fallback", "error": str(exc)})
         return LLMReportResult(
             markdown=markdown,
@@ -99,11 +109,18 @@ def _summarize_chunks(
     query: str,
     max_input_chars: int,
     attempts: list[dict[str, Any]],
+    progress: ProgressCallback | None,
 ) -> list[ChunkSummary]:
     summaries: list[ChunkSummary] = []
-    for batch_index, batch in enumerate(_batch_chunks(chunks, max_input_chars), start=1):
+    batches = _batch_chunks(chunks, max_input_chars)
+    if not batches:
+        _emit(progress, "status", "No evidence chunks to summarize.\n")
+        return summaries
+    _emit(progress, "status", f"Summarizing evidence chunks in {len(batches)} batch(es)...\n")
+    for batch_index, batch in enumerate(batches, start=1):
         summary_id = f"chunk_summary_{batch_index:03d}"
         prompt = _chunk_summary_prompt(output_plan, batch, query)
+        _emit(progress, "status", f"Summarizing chunk batch {batch_index}/{len(batches)}...\n")
         try:
             content = llm_client.chat_completion(
                 [
@@ -123,9 +140,11 @@ def _summarize_chunks(
             if not summary.summary:
                 raise ValueError("Chunk summary response did not include summary.")
             attempts.append({"stage": "chunk_summary", "batch": batch_index, "status": "succeeded"})
+            _emit(progress, "status", f"Chunk batch {batch_index}/{len(batches)} complete.\n")
         except Exception as exc:
             attempts.append({"stage": "chunk_summary", "batch": batch_index, "status": "fallback", "error": str(exc)})
             summary = _fallback_chunk_summary(summary_id, batch, str(exc))
+            _emit(progress, "status", f"Chunk batch {batch_index}/{len(batches)} used fallback: {exc}\n")
         summaries.append(summary)
     return summaries
 
@@ -138,14 +157,17 @@ def _summarize_sections(
     query: str,
     max_input_chars: int,
     attempts: list[dict[str, Any]],
+    progress: ProgressCallback | None,
 ) -> list[SectionSummary]:
     summaries_by_chunk = {chunk_id: summary for summary in chunk_summaries for chunk_id in summary.chunk_ids}
     section_summaries: list[SectionSummary] = []
-    for section in output_plan.sections:
+    _emit(progress, "status", f"Reducing summaries into {len(output_plan.sections)} report section(s)...\n")
+    for section_index, section in enumerate(output_plan.sections, start=1):
         selected = [summaries_by_chunk[chunk_id] for chunk_id in section.source_chunk_ids if chunk_id in summaries_by_chunk]
         if not selected and section.section_id in {"overview", "gaps", "source_documents", "provenance"}:
             selected = chunk_summaries[: min(3, len(chunk_summaries))]
         prompt = _section_summary_prompt(section.title, section.purpose, selected, query, max_input_chars)
+        _emit(progress, "status", f"Reducing section {section_index}/{len(output_plan.sections)}: {section.title}\n")
         try:
             content = llm_client.chat_completion(
                 [
@@ -166,11 +188,13 @@ def _summarize_sections(
             if not summary.summary:
                 raise ValueError("Section summary response did not include summary.")
             attempts.append({"stage": "section_summary", "section": section.section_id, "status": "succeeded"})
+            _emit(progress, "status", f"Section {section_index}/{len(output_plan.sections)} complete.\n")
         except Exception as exc:
             attempts.append(
                 {"stage": "section_summary", "section": section.section_id, "status": "fallback", "error": str(exc)}
             )
             summary = _fallback_section_summary(section.section_id, section.title, selected)
+            _emit(progress, "status", f"Section {section_index}/{len(output_plan.sections)} used fallback: {exc}\n")
         section_summaries.append(summary)
     return section_summaries
 
@@ -184,27 +208,48 @@ def _write_final_markdown(
     query: str,
     max_input_chars: int,
     attempts: list[dict[str, Any]],
+    progress: ProgressCallback | None,
 ) -> str:
     prompt = _final_markdown_prompt(output_plan, documents, section_summaries, query, max_input_chars)
-    content = llm_client.chat_completion(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "You write grounded Markdown reports from extracted evidence. "
-                    "Return Markdown only. Do not invent unsupported facts. Keep source refs when useful."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ]
-    )
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You write grounded Markdown reports from extracted evidence. "
+                "Return Markdown only. Do not invent unsupported facts. Keep source refs when useful."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+    _emit(progress, "status", "Generating final Markdown report...\n")
+    stream_chat_completion = getattr(llm_client, "stream_chat_completion", None)
+    if callable(stream_chat_completion):
+        parts: list[str] = []
+        for chunk in stream_chat_completion(messages):
+            if getattr(chunk, "kind", "") != "final":
+                continue
+            text = getattr(chunk, "text", "")
+            if not text:
+                continue
+            parts.append(text)
+            _emit(progress, "markdown", text)
+        content = "".join(parts)
+    else:
+        content = llm_client.chat_completion(messages)
+        _emit(progress, "markdown", content)
     markdown = content.strip()
     if not markdown:
         raise ValueError("Final report response was empty.")
     if not markdown.startswith("#"):
         markdown = f"# {output_plan.title}\n\n{markdown}"
     attempts.append({"stage": "final_report", "status": "succeeded"})
+    _emit(progress, "status", "\nFinal Markdown report generated.\n")
     return markdown.rstrip() + "\n"
+
+
+def _emit(progress: ProgressCallback | None, kind: str, text: str) -> None:
+    if progress is not None and text:
+        progress(kind, text)
 
 
 def _batch_chunks(chunks: list[EvidenceChunk], max_input_chars: int) -> list[list[EvidenceChunk]]:

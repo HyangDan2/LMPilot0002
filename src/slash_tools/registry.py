@@ -23,7 +23,8 @@ from .help import help_command
 from .results import SlashToolResult, error_result
 
 
-SlashHandler = Callable[[list[str], str | Path | None, SlashToolContext], SlashToolResult]
+SlashProgressCallback = Callable[[str, str], None]
+SlashHandler = Callable[[list[str], str | Path | None, SlashToolContext, SlashProgressCallback | None], SlashToolResult]
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,7 @@ def run_slash_command(
     command_text: str,
     working_folder: str | Path | None,
     context: SlashToolContext,
+    progress: SlashProgressCallback | None = None,
 ) -> SlashToolResult | None:
     stripped = command_text.strip()
     if not stripped.startswith("/"):
@@ -118,7 +120,7 @@ def run_slash_command(
     if tool is None:
         return error_result(f"unknown slash command '{command}'. Run /help to see available commands.", command)
     try:
-        result = tool.handler(parts[1:], working_folder, context)
+        result = tool.handler(parts[1:], working_folder, context, progress)
         context.last_tool_name = result.tool_name
         context.last_tool_summary = result.history_text
         context.saved_files = list(result.saved_files)

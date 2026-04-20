@@ -1,5 +1,6 @@
 import json
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,19 @@ class FakeReportLLMClient:
         return "# Final Report\n\nRevenue grew by 10% according to `chunk_test`.\n"
 
 
+@dataclass(frozen=True)
+class FakeStreamChunk:
+    kind: str
+    text: str
+
+
+class FakeStreamingReportLLMClient(FakeReportLLMClient):
+    def stream_chat_completion(self, messages: list[dict[str, Any]]):
+        self.prompts.append(str(messages[-1]["content"]))
+        yield FakeStreamChunk("final", "# Final")
+        yield FakeStreamChunk("final", " Report\n\nStreaming report body.")
+
+
 class GenerateReportOrchestrationTests(unittest.TestCase):
     def test_generate_report_uses_query_and_returns_markdown(self) -> None:
         document = _sample_document()
@@ -57,6 +71,28 @@ class GenerateReportOrchestrationTests(unittest.TestCase):
         self.assertFalse(result.used_llm)
         self.assertIn("# Report for Report", result.markdown)
         self.assertIn("LLM client is not configured", result.fallback_reason)
+
+    def test_generate_report_streams_final_markdown_when_client_supports_it(self) -> None:
+        document = _sample_document()
+        doc_map = build_doc_map([document])
+        chunks = chunk_sections([document])
+        plan = write_output_plan([document], doc_map, chunks)
+        events: list[tuple[str, str]] = []
+
+        result = generate_report(
+            plan,
+            [document],
+            doc_map,
+            chunks,
+            FakeStreamingReportLLMClient(),
+            progress=lambda kind, text: events.append((kind, text)),
+        )
+
+        self.assertTrue(result.used_llm)
+        self.assertIn("# Final Report", result.markdown)
+        markdown_events = [text for kind, text in events if kind == "markdown"]
+        self.assertIn("# Final", markdown_events)
+        self.assertIn(" Report\n\nStreaming report body.", markdown_events)
 
 
 def _sample_document() -> ExtractedDocument:
