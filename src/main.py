@@ -4,17 +4,17 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.config import PipelineConfig, load_config
-from app.ingestion.dispatcher import parse_document
-from app.ingestion.parsers.base import ParserError
-from app.ingestion.scanner import scan_supported_files
-from app.models.schemas import ParsedDocument
-from app.planner.chunked_planner import ChunkedPlannerSettings, create_chunked_presentation_plan
-from app.planner.llm_client import LLMSettings
-from app.renderer.pptx_renderer import PptxRenderer
-from app.transform.knowledge_map import build_knowledge_map, render_knowledge_map_markdown
-from app.utils.io import ensure_dir, save_json, save_text
-from app.utils.logging import get_logger
+from src.config import PipelineConfig, load_config
+from src.ingestion.dispatcher import parse_document
+from src.ingestion.parsers.base import ParserError
+from src.ingestion.scanner import scan_supported_files
+from src.models.schemas import ParsedDocument
+from src.planner.chunked_planner import ChunkedPlannerSettings, create_chunked_presentation_plan
+from src.planner.llm_client import LLMSettings
+from src.renderer.pptx_renderer import PptxRenderer
+from src.transform.knowledge_map import build_knowledge_map, render_knowledge_map_markdown
+from src.utils.io import ensure_dir, save_json, save_text
+from src.utils.logging import get_logger
 
 
 @dataclass(frozen=True)

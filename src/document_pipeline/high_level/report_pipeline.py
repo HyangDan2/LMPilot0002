@@ -6,7 +6,7 @@ from threading import Event
 from time import perf_counter
 from typing import Callable
 
-from app.ingestion.scanner import scan_supported_files
+from src.ingestion.scanner import scan_supported_files
 
 from src.document_pipeline.mid_level import ExtractionContext, build_doc_map, extract_single_doc
 from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, OutputPlan, SelectedEvidence

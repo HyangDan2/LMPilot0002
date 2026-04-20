@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from app.ingestion.dispatcher import parse_document
-from app.models.schemas import ParsedDocument
+from src.ingestion.dispatcher import parse_document
+from src.models.schemas import ParsedDocument
 
 from src.document_pipeline.low_level.normalize import normalize_text
 from src.document_pipeline.low_level.provenance import file_provenance
@@ -27,7 +27,7 @@ class DocumentAdapter(Protocol):
 
 
 class LegacyParserAdapter:
-    """Bridge existing app.ingestion parsers into the new intermediate schema."""
+    """Bridge existing src.ingestion parsers into the new intermediate schema."""
 
     supported_extensions = {".pptx", ".docx", ".xlsx", ".pdf"}
 

@@ -6,16 +6,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.models.schemas import PresentationPlan
-from app.planner.llm_client import LLMClientError, LLMSettings, OpenAICompatibleLLMClient
-from app.planner.planner import PlannerError, parse_presentation_plan
-from app.planner.prompts import (
+from src.models.schemas import PresentationPlan
+from src.planner.llm_client import LLMClientError, LLMSettings, OpenAICompatibleLLMClient
+from src.planner.planner import PlannerError, parse_presentation_plan
+from src.planner.prompts import (
     CHUNK_SUMMARY_SYSTEM_PROMPT,
     FINAL_FROM_SUMMARIES_SYSTEM_PROMPT,
     build_chunk_summary_prompt,
     build_final_summary_prompt,
 )
-from app.utils.io import ensure_dir, save_json
+from src.utils.io import ensure_dir, save_json
 
 
 class ChunkedPlannerError(Exception):

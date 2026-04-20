@@ -20,6 +20,7 @@ class OutputPlanTests(unittest.TestCase):
             [section.title for section in plan.sections],
             ["Summary", "Source Documents", "Open Issues and Next Actions"],
         )
+        self.assertEqual(plan.sections[0].max_chars, 20480)
         self.assertIn("blk_001", plan.sections[0].source_block_ids)
 
     def test_generate_output_plan_uses_grounded_evidence(self) -> None:
@@ -32,6 +33,10 @@ class OutputPlanTests(unittest.TestCase):
 
         self.assertIn("# Engineering Report for Report", markdown)
         self.assertIn("## Summary", markdown)
+        self.assertIn("### Objective", markdown)
+        self.assertIn("### Engineering Context", markdown)
+        self.assertIn("### Key Findings", markdown)
+        self.assertIn("### Quantitative Results", markdown)
         self.assertIn("## Source Documents", markdown)
         self.assertIn("## Open Issues and Next Actions", markdown)
         self.assertIn("Revenue grew by 10%.", markdown)

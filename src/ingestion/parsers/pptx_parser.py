@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from app.ingestion.parsers.base import DocumentParser, ParserError
-from app.models.schemas import Asset, ParsedDocument, Section
+from src.ingestion.parsers.base import DocumentParser, ParserError
+from src.models.schemas import Asset, ParsedDocument, Section
 
 
 class PptxParser(DocumentParser):

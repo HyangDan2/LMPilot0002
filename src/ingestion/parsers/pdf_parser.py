@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.ingestion.parsers.base import DocumentParser, ParserError
-from app.models.schemas import ParsedDocument, Section
+from src.ingestion.parsers.base import DocumentParser, ParserError
+from src.models.schemas import ParsedDocument, Section
 
 
 class PdfParser(DocumentParser):

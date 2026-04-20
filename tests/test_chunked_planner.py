@@ -3,13 +3,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.planner.chunked_planner import (
+from src.planner.chunked_planner import (
     CHUNK_SUMMARY_SYSTEM_PROMPT,
     ChunkedPlannerSettings,
     create_chunked_presentation_plan,
     split_text_into_chunks,
 )
-from app.planner.llm_client import LLMClientError, LLMSettings
+from src.planner.llm_client import LLMClientError, LLMSettings
 
 
 class FakeAdaptivePlannerClient:
@@ -66,7 +66,7 @@ class ChunkedPlannerTests(unittest.TestCase):
         artifact_dir = Path(tempfile.mkdtemp())
         knowledge_map = "# Knowledge Map\n\n`doc-1-section-1` " + ("large context " * 120)
 
-        with patch("app.planner.chunked_planner.OpenAICompatibleLLMClient", FakeAdaptivePlannerClient):
+        with patch("src.planner.chunked_planner.OpenAICompatibleLLMClient", FakeAdaptivePlannerClient):
             result = create_chunked_presentation_plan(
                 llm_settings=LLMSettings(base_url="http://localhost:8000/v1", model="local"),
                 planner_settings=ChunkedPlannerSettings(

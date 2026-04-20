@@ -18,6 +18,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/generate_report", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
         self.assertIn("selected_evidence.json", result.text)
+        self.assertIn("Objective, Engineering Context", result.text)
         self.assertNotIn("llm_chunk_summaries.json", result.text)
 
     def test_non_slash_prompt_is_not_handled(self) -> None:
@@ -134,6 +135,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
                 [section["title"] for section in json.loads(plan_path.read_text(encoding="utf-8"))["sections"]],
                 ["Summary", "Source Documents", "Open Issues and Next Actions"],
             )
+            self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["sections"][0]["max_chars"], 20480)
             self.assertIsNotNone(context.doc_map)
 
         assert result is not None

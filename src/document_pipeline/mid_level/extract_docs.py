@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.ingestion.scanner import scan_supported_files
-from app.utils.paths import stable_doc_id
+from src.ingestion.scanner import scan_supported_files
+from src.utils.paths import stable_doc_id
 
 from src.document_pipeline.adapters import LegacyParserAdapter
 from src.document_pipeline.low_level import detect_file_type, read_file_bytes, validate_extracted_document

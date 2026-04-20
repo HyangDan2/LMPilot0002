@@ -24,7 +24,7 @@ class FakeReportLLMClient:
             raise AssertionError("generate_report should not request JSON chunk summaries.")
         return (
             "# Engineering Report\n\n"
-            "## Summary\n\nRevenue grew by 10% according to `report.pptx / blk_001`.\n\n"
+            "## Summary\n\n### Key Findings\n\nRevenue grew by 10% according to `report.pptx / blk_001`. The calculation basis is missing.\n\n"
             "## Source Documents\n\n| Source | Type | Evidence Used |\n|---|---|---:|\n| report.pptx | .pptx | 1 |\n\n"
             "## Open Issues and Next Actions\n\n- Verify the source calculation.\n"
         )
@@ -55,12 +55,15 @@ class GenerateReportOrchestrationTests(unittest.TestCase):
 
         self.assertTrue(result.used_llm)
         self.assertIn("# Engineering Report", result.markdown)
+        self.assertIn("Revenue grew by 10% according to `report.pptx / blk_001`.\nThe calculation basis is missing.", result.markdown)
         self.assertEqual(result.chunk_summaries, [])
         self.assertEqual(result.section_summaries, [])
         self.assertEqual(len(client.prompts), 1)
         self.assertTrue(any("summarize about revenue" in prompt for prompt in client.prompts))
         self.assertTrue(any("Grounded report material" in prompt for prompt in client.prompts))
         self.assertTrue(any("Summary, Source Documents, Open Issues and Next Actions" in prompt for prompt in client.prompts))
+        self.assertTrue(any("Objective, Engineering Context, Key Findings" in prompt for prompt in client.prompts))
+        self.assertTrue(any("Write each sentence on its own line" in prompt for prompt in client.prompts))
 
     def test_generate_report_falls_back_without_llm_client(self) -> None:
         document = _sample_document()
@@ -73,6 +76,8 @@ class GenerateReportOrchestrationTests(unittest.TestCase):
         self.assertFalse(result.used_llm)
         self.assertIn("# Engineering Report for Report", result.markdown)
         self.assertIn("## Summary", result.markdown)
+        self.assertIn("### Objective", result.markdown)
+        self.assertIn("### Recommendations", result.markdown)
         self.assertIn("## Source Documents", result.markdown)
         self.assertIn("## Open Issues and Next Actions", result.markdown)
         self.assertIn("LLM client is not configured", result.fallback_reason)

@@ -5,6 +5,15 @@ from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, Output
 
 DEFAULT_REPORT_GOAL = "Generate a concise engineering report from the attached workspace documents."
 OUTPUT_PLAN_SCHEMA_VERSION = "0.1"
+SUMMARY_SUBSECTIONS = [
+    "Objective",
+    "Engineering Context",
+    "Key Findings",
+    "Technical Details",
+    "Quantitative Results",
+    "Risks and Constraints",
+    "Recommendations",
+]
 
 
 def write_output_plan(
@@ -21,11 +30,12 @@ def write_output_plan(
             section_id="summary",
             title="Summary",
             purpose=(
-                "Provide a concise engineering summary of supported technical content, findings, "
-                "constraints, data, risks, and recommendations."
+                "Provide a detailed engineering summary with H3 subsections for Objective, "
+                "Engineering Context, Key Findings, Technical Details, Quantitative Results, "
+                "Risks and Constraints, and Recommendations when evidence supports them."
             ),
             source_block_ids=all_block_ids[:12],
-            max_chars=2200,
+            max_chars=20480,
         ),
         OutputPlanSection(
             section_id="source_documents",

@@ -4,9 +4,9 @@ import json
 import re
 from typing import Any
 
-from app.models.schemas import PresentationPlan, SlidePlan
-from app.planner.llm_client import OpenAICompatibleLLMClient
-from app.planner.prompts import PLANNER_SYSTEM_PROMPT, build_planner_user_prompt
+from src.models.schemas import PresentationPlan, SlidePlan
+from src.planner.llm_client import OpenAICompatibleLLMClient
+from src.planner.prompts import PLANNER_SYSTEM_PROMPT, build_planner_user_prompt
 
 
 class PlannerError(Exception):

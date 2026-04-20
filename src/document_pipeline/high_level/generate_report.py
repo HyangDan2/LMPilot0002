@@ -7,7 +7,9 @@ from typing import Any, Callable, Protocol
 from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, LLMReportResult, OutputPlan, SelectedEvidence
 
 from .generate_output_plan import generate_output_plan
+from .markdown_format import sentence_per_line_markdown
 from .select_evidence import format_selected_evidence
+from .write_output_plan import SUMMARY_SUBSECTIONS
 
 ProgressCallback = Callable[[str, str], None]
 
@@ -39,7 +41,7 @@ def generate_report(
     _check_cancelled(cancel_event)
     if llm_client is None:
         _emit(progress, "status", "LLM client is not configured. Using deterministic fallback report.\n")
-        markdown = generate_output_plan(output_plan, documents, doc_map, selected_evidence)
+        markdown = sentence_per_line_markdown(generate_output_plan(output_plan, documents, doc_map, selected_evidence))
         _emit(progress, "markdown", markdown)
         return LLMReportResult(
             markdown=markdown,
@@ -68,7 +70,7 @@ def generate_report(
             used_llm=True,
         )
     except Exception as exc:
-        markdown = generate_output_plan(output_plan, documents, doc_map, selected_evidence)
+        markdown = sentence_per_line_markdown(generate_output_plan(output_plan, documents, doc_map, selected_evidence))
         _emit(progress, "status", f"Final LLM report failed. Using deterministic fallback: {exc}\n")
         _emit(progress, "markdown", markdown)
         attempts.append({"stage": "final_report", "status": "fallback", "error": str(exc)})
@@ -128,6 +130,7 @@ def _write_final_markdown(
         raise ValueError("Final report response was empty.")
     if not markdown.startswith("#"):
         markdown = f"# {output_plan.title}\n\n{markdown}"
+    markdown = sentence_per_line_markdown(markdown)
     attempts.append(
         {
             "stage": "final_report",
@@ -158,6 +161,7 @@ def _final_markdown_prompt(
         for document in documents
     ]
     evidence_packet = format_selected_evidence(selected_evidence)
+    summary_subsections = ", ".join(SUMMARY_SUBSECTIONS)
     payload = {
         "report_query": query,
         "output_plan": output_plan.to_dict(),
@@ -170,6 +174,8 @@ def _final_markdown_prompt(
         "Requirements:\n"
         "- Start with exactly one H1 title.\n"
         "- Use exactly these H2 sections in this order: Summary, Source Documents, Open Issues and Next Actions.\n"
+        f"- Under Summary, use H3 subsections when evidence supports them: {summary_subsections}.\n"
+        "- If a Summary subsection lacks evidence, state the gap briefly instead of inventing content.\n"
         "- Focus on the report query.\n"
         "- Use only the selected evidence packet.\n"
         "- In Summary, synthesize technical findings, constraints, data, risks, and recommendations supported by evidence.\n"
@@ -178,6 +184,7 @@ def _final_markdown_prompt(
         "- Distinguish facts from assumptions and gaps.\n"
         "- Include quantitative findings when evidence contains numbers, tests, specs, or results.\n"
         "- Cite source filename and block ID for concrete claims.\n"
+        "- Write each sentence on its own line in normal paragraphs.\n"
         "- Do not add extra H2 sections.\n\n"
         f"Grounded report material:\n{_truncate(json.dumps(payload, ensure_ascii=False, indent=2), max_input_chars)}"
     )

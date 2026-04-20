@@ -3,8 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from app.models.schemas import ParsedDocument
-from app.utils.paths import stable_doc_id
+from src.models.schemas import ParsedDocument
+from src.utils.paths import stable_doc_id
 
 
 class ParserError(Exception):

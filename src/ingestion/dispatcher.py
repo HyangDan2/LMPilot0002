@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.ingestion.parsers.base import DocumentParser, ParserError
-from app.ingestion.parsers.docx_parser import DocxParser
-from app.ingestion.parsers.pdf_parser import PdfParser
-from app.ingestion.parsers.pptx_parser import PptxParser
-from app.ingestion.parsers.xlsx_parser import XlsxParser
-from app.models.schemas import ParsedDocument
+from src.ingestion.parsers.base import DocumentParser, ParserError
+from src.ingestion.parsers.docx_parser import DocxParser
+from src.ingestion.parsers.pdf_parser import PdfParser
+from src.ingestion.parsers.pptx_parser import PptxParser
+from src.ingestion.parsers.xlsx_parser import XlsxParser
+from src.models.schemas import ParsedDocument
 
 
 PARSERS: dict[str, type[DocumentParser]] = {

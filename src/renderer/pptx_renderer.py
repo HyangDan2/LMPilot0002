@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.models.schemas import PresentationPlan
-from app.utils.io import ensure_dir
-from app.utils.paths import slugify
+from src.models.schemas import PresentationPlan
+from src.utils.io import ensure_dir
+from src.utils.paths import slugify
 
 
 class RendererError(Exception):

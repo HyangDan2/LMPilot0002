@@ -169,7 +169,7 @@ python run.py --config config.yaml
   Run the pipeline from a terminal:
 
   ```bash
-  python -m app.main --working-dir data/working --output-dir data/outputs "Create a 7-slide executive summary"
+  python -m src.main --working-dir data/working --output-dir data/outputs "Create a 7-slide executive summary"
   ```
 
   Generated files:
@@ -228,6 +228,20 @@ python run.py --config config.yaml
   Open Issues and Next Actions
   ```
 
+  The `Summary` section is intentionally richer than the outer structure. When evidence supports it, `Summary` may include these subsections:
+
+  ```text
+  Objective
+  Engineering Context
+  Key Findings
+  Technical Details
+  Quantitative Results
+  Risks and Constraints
+  Recommendations
+  ```
+
+  Saved `generated_report.md` files place each normal paragraph sentence on its own line. Headings, tables, bullets, code fences, and blank lines are preserved.
+
   Slash tools run in background workers so the GUI stays responsive. A session can run only one slash tool at a time, but other sessions can run their own slash tools while `/generate_report` is active. Stop cancels the currently selected session's running slash tool or normal generation. Document-pipeline artifacts are still saved to shared paths under the attached folder, so simultaneous report commands against the same folder use last-writer-wins files.
 
   Generated document-pipeline artifacts:
@@ -267,6 +281,21 @@ cp config.example.yaml config.yaml
 ---
 
 ## 🧩 Architecture Overview
+
+The code is consolidated under `src/`; the old top-level `app/` package has been removed. The main folders are:
+
+```text
+src/ingestion          deterministic file scanning and parsers
+src/models             shared parser/planner dataclasses
+src/utils              path, IO, and logging helpers
+src/planner            adaptive PPTX planning pipeline
+src/renderer           deterministic PPTX rendering
+src/transform          knowledge-map construction
+src/document_pipeline  extracted-document schema, evidence selection, and report generation
+src/slash_tools        prompt-box local commands
+src/gui                PySide6 GUI, sessions, database, and LLM client
+src/tools              legacy local tools
+```
 
 ```
 GUI (PySide6)

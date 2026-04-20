@@ -38,6 +38,9 @@ Generate a deterministic markdown report from extracted evidence.
 Run extraction, mapping, output planning, compact evidence selection, and one final engineering Markdown call in one step.
 No prerequisite slash command is required. It reuses unchanged extraction artifacts unless --fresh is provided.
 Progress, timings, and final Markdown stream into the chat while generated_report.md is saved.
+The saved report uses Summary, Source Documents, and Open Issues and Next Actions as top-level sections.
+Summary may include Objective, Engineering Context, Key Findings, Technical Details, Quantitative Results, Risks and Constraints, and Recommendations when evidence supports them.
+Saved report paragraphs place each sentence on a separate line.
 Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
 
 Examples:
