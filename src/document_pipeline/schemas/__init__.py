@@ -10,6 +10,8 @@ from .models import (
     OutputPlan,
     OutputPlanSection,
     Provenance,
+    SelectedEvidence,
+    SelectedEvidenceBlock,
     SourceInfo,
     SectionSummary,
 )
@@ -26,6 +28,8 @@ __all__ = [
     "OutputPlan",
     "OutputPlanSection",
     "Provenance",
+    "SelectedEvidence",
+    "SelectedEvidenceBlock",
     "SectionSummary",
     "SourceInfo",
 ]

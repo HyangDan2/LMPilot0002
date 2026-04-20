@@ -8,7 +8,6 @@ from typing import Callable
 from .context import SlashToolContext
 from .document_pipeline import (
     build_doc_map_command,
-    chunk_sections_command,
     detect_file_type_command,
     extract_docs_command,
     extract_single_doc_command,
@@ -73,12 +72,6 @@ SLASH_TOOLS: dict[str, SlashTool] = {
         "/build_doc_map",
         build_doc_map_command,
     ),
-    "/chunk_sections": SlashTool(
-        "/chunk_sections",
-        "Build and auto-save retrieval chunks.",
-        "/chunk_sections [--max-chars N]",
-        chunk_sections_command,
-    ),
     "/workspace_status": SlashTool(
         "/workspace_status",
         "Show which document-pipeline artifacts are available.",
@@ -93,8 +86,8 @@ SLASH_TOOLS: dict[str, SlashTool] = {
     ),
     "/generate_report": SlashTool(
         "/generate_report",
-        "Run extraction, mapping, chunking, output planning, LLM orchestration, and Markdown report generation.",
-        "/generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]",
+        "Run extraction, mapping, output planning, evidence selection, and Markdown report generation.",
+        "/generate_report [--no-llm] [--llm-input-chars N] [query...]",
         generate_report_command,
     ),
 }

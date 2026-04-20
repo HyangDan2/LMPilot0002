@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from src.document_pipeline.schemas import ChunkSummary, DocumentMap, EvidenceChunk, ExtractedDocument, OutputPlan
-from src.document_pipeline.schemas import SectionSummary
+from src.document_pipeline.schemas import SectionSummary, SelectedEvidence
 
 
 def pipeline_output_dir(working_folder: Path) -> Path:
@@ -41,6 +41,12 @@ def save_chunks(working_folder: Path, chunks: list[EvidenceChunk]) -> Path:
 def save_output_plan(working_folder: Path, output_plan: OutputPlan) -> Path:
     path = pipeline_output_dir(working_folder) / "output_plan.json"
     _write_json(path, output_plan.to_dict())
+    return path
+
+
+def save_selected_evidence(working_folder: Path, selected_evidence: SelectedEvidence) -> Path:
+    path = pipeline_output_dir(working_folder) / "selected_evidence.json"
+    _write_json(path, selected_evidence.to_dict())
     return path
 
 
@@ -117,6 +123,11 @@ def load_manifest_payload(working_folder: Path) -> dict[str, Any]:
 def load_output_plan_payload(working_folder: Path) -> dict[str, Any]:
     path = pipeline_output_dir(working_folder) / "output_plan.json"
     return _read_json_object(path, "output_plan.json")
+
+
+def load_selected_evidence_payload(working_folder: Path) -> dict[str, Any]:
+    path = pipeline_output_dir(working_folder) / "selected_evidence.json"
+    return _read_json_object(path, "selected_evidence.json")
 
 
 def load_report_attempts_payload(working_folder: Path) -> dict[str, Any]:

@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
-from src.document_pipeline.schemas import DocumentMap, EvidenceChunk, ExtractedDocument
+from src.document_pipeline.schemas import DocumentMap, ExtractedDocument
 
 
 @dataclass
@@ -15,7 +15,6 @@ class SlashToolContext:
     working_folder: Path | None = None
     documents: list[ExtractedDocument] = field(default_factory=list)
     doc_map: DocumentMap | None = None
-    chunks: list[EvidenceChunk] = field(default_factory=list)
     saved_files: list[str] = field(default_factory=list)
     llm_settings: Any | None = None
     cancel_event: Event | None = None
@@ -27,7 +26,6 @@ class SlashToolContext:
         self.working_folder = working_folder
         self.documents.clear()
         self.doc_map = None
-        self.chunks.clear()
         self.saved_files.clear()
         self.active_llm_client = None
         self.last_tool_name = ""
@@ -38,7 +36,6 @@ class SlashToolContext:
             working_folder=self.working_folder,
             documents=list(self.documents),
             doc_map=self.doc_map,
-            chunks=list(self.chunks),
             saved_files=list(self.saved_files),
             llm_settings=self.llm_settings,
             cancel_event=self.cancel_event,
@@ -51,7 +48,6 @@ class SlashToolContext:
         self.working_folder = other.working_folder
         self.documents = list(other.documents)
         self.doc_map = other.doc_map
-        self.chunks = list(other.chunks)
         self.saved_files = list(other.saved_files)
         self.llm_settings = other.llm_settings
         self.cancel_event = other.cancel_event

@@ -4,6 +4,7 @@ from .json_store import (
     load_extracted_documents_payload,
     load_manifest_payload,
     load_output_plan_payload,
+    load_selected_evidence_payload,
     load_report_attempts_payload,
     pipeline_output_dir,
     save_chunk_summaries,
@@ -15,6 +16,7 @@ from .json_store import (
     save_output_plan,
     save_report_attempts,
     save_section_summaries,
+    save_selected_evidence,
     save_single_document,
 )
 
@@ -24,6 +26,7 @@ __all__ = [
     "load_extracted_documents_payload",
     "load_manifest_payload",
     "load_output_plan_payload",
+    "load_selected_evidence_payload",
     "load_report_attempts_payload",
     "pipeline_output_dir",
     "save_chunk_summaries",
@@ -35,5 +38,6 @@ __all__ = [
     "save_output_plan",
     "save_report_attempts",
     "save_section_summaries",
+    "save_selected_evidence",
     "save_single_document",
 ]

@@ -194,6 +194,40 @@ class OutputPlan:
 
 
 @dataclass(frozen=True)
+class SelectedEvidenceBlock:
+    """One extracted block selected as grounding evidence for a report."""
+
+    document_id: str
+    block_id: str
+    source_filename: str
+    role: str
+    text: str
+    provenance: Provenance
+    score: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["provenance"] = self.provenance.to_dict()
+        return payload
+
+
+@dataclass(frozen=True)
+class SelectedEvidence:
+    """Prompt-sized evidence package selected from extracted blocks."""
+
+    query: str
+    max_input_chars: int
+    blocks: list[SelectedEvidenceBlock] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "max_input_chars": self.max_input_chars,
+            "blocks": [block.to_dict() for block in self.blocks],
+        }
+
+
+@dataclass(frozen=True)
 class ChunkSummary:
     """LLM or fallback summary for one context-safe chunk batch."""
 

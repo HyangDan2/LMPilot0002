@@ -4,12 +4,11 @@ from pathlib import Path
 
 from src.document_pipeline.high_level import generate_markdown_report, generate_report_pipeline
 from src.document_pipeline.low_level import detect_file_type, normalize_text, read_file_bytes
-from src.document_pipeline.mid_level import ExtractionContext, build_doc_map, chunk_sections
+from src.document_pipeline.mid_level import ExtractionContext, build_doc_map
 from src.document_pipeline.mid_level import extract_docs as extract_docs_mid_level
 from src.document_pipeline.mid_level import extract_single_doc as extract_single_doc_mid_level
 from src.document_pipeline.storage import (
     load_extracted_documents_payload,
-    save_chunks,
     save_document_map,
     save_extracted_documents,
     save_generated_markdown,
@@ -104,7 +103,7 @@ def extract_single_doc_command(
             ]
         ),
         saved_files=saved_files,
-        next_actions=["/build_doc_map", "/chunk_sections", "/workspace_status"],
+        next_actions=["/build_doc_map", "/generate_report", "/workspace_status"],
     )
 
 
@@ -118,7 +117,6 @@ def extract_docs_command(
     documents = extract_docs_mid_level(root, ExtractionContext(working_folder=root))
     context.documents = documents
     context.doc_map = None
-    context.chunks.clear()
     docs_path = save_extracted_documents(root, documents)
     manifest = save_manifest(root, documents)
     saved_files = [_relative_to_root(docs_path, root), _relative_to_root(manifest, root)]
@@ -132,7 +130,7 @@ def extract_docs_command(
         "/extract_docs",
         "\n".join(lines),
         saved_files=saved_files,
-        next_actions=["/build_doc_map", "/chunk_sections", "/generate_report", "/workspace_status"],
+        next_actions=["/build_doc_map", "/generate_report", "/workspace_status"],
     )
 
 
@@ -154,30 +152,6 @@ def build_doc_map_command(
                 "",
                 f"- documents: {len(doc_map.documents)}",
                 f"- blocks: {len(doc_map.blocks)}",
-            ]
-        ),
-        saved_files=[_relative_to_root(saved_path, root)],
-        next_actions=["/chunk_sections", "/generate_report", "/workspace_status"],
-    )
-
-
-def chunk_sections_command(
-    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
-) -> SlashToolResult:
-    root = require_working_folder(working_folder)
-    max_chars = _parse_max_chars(args)
-    _ensure_documents(root, context)
-    chunks = chunk_sections(context.documents, max_chars=max_chars)
-    context.chunks = chunks
-    saved_path = save_chunks(root, chunks)
-    return _result(
-        "/chunk_sections",
-        "\n".join(
-            [
-                "Built retrieval chunks.",
-                "",
-                f"- chunks: {len(chunks)}",
-                f"- max_chars: {max_chars}",
             ]
         ),
         saved_files=[_relative_to_root(saved_path, root)],
@@ -209,10 +183,7 @@ def generate_markdown_command(
     if context.doc_map is None:
         context.doc_map = build_doc_map(context.documents)
         save_document_map(root, context.doc_map)
-    if not context.chunks:
-        context.chunks = chunk_sections(context.documents)
-        save_chunks(root, context.chunks)
-    markdown = generate_markdown_report(context.documents, context.doc_map, context.chunks)
+    markdown = generate_markdown_report(context.documents, context.doc_map)
     saved_path = save_generated_markdown(root, markdown)
     return _result(
         "/generate_markdown",
@@ -221,7 +192,7 @@ def generate_markdown_command(
                 "Generated markdown report.",
                 "",
                 f"- documents: {len(context.documents)}",
-                f"- chunks: {len(context.chunks)}",
+                f"- blocks: {sum(len(document.blocks) for document in context.documents)}",
             ]
         ),
         saved_files=[_relative_to_root(saved_path, root)],
@@ -233,13 +204,12 @@ def generate_report_command(
     args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
-    goal, max_chars, llm_input_chars, use_llm = _parse_generate_report_args(args)
+    goal, llm_input_chars, use_llm = _parse_generate_report_args(args)
     context.reset_for_folder(root) if context.working_folder != root else None
     llm_client = _make_llm_client(context) if use_llm else None
     result = generate_report_pipeline(
         root,
         goal=goal,
-        max_chunk_chars=max_chars,
         llm_client=llm_client,
         llm_input_chars=llm_input_chars,
         progress=progress,
@@ -247,7 +217,6 @@ def generate_report_command(
     )
     context.documents = result.documents
     context.doc_map = result.doc_map
-    context.chunks = result.chunks
     saved_files = [_relative_to_root(path, root) for path in result.saved_files]
     lines = [
         "Generated report.",
@@ -256,9 +225,8 @@ def generate_report_command(
         *[f"- {step}" for step in result.prerequisite_steps],
         "",
         f"- documents: {len(result.documents)}",
-        f"- chunks: {len(result.chunks)}",
+        f"- evidence_blocks: {len(result.selected_evidence.blocks)}",
         f"- plan_sections: {len(result.output_plan.sections)}",
-        f"- max_chunk_chars: {max_chars}",
         f"- llm_input_chars: {llm_input_chars}",
         f"- llm_used: {'yes' if result.used_llm else 'no'}",
         f"- goal: {result.output_plan.goal}",
@@ -286,23 +254,8 @@ def _ensure_documents(root: Path, context: SlashToolContext) -> None:
         raise SlashToolError(f"Could not load extracted_documents.json: {exc}") from exc
 
 
-def _parse_max_chars(args: list[str]) -> int:
-    if not args:
-        return 2400
-    if len(args) != 2 or args[0] != "--max-chars":
-        raise SlashToolError("Usage: /chunk_sections [--max-chars N]")
-    try:
-        value = int(args[1])
-    except ValueError as exc:
-        raise SlashToolError("--max-chars must be an integer.") from exc
-    if value < 200:
-        raise SlashToolError("--max-chars must be at least 200.")
-    return value
-
-
-def _parse_generate_report_args(args: list[str]) -> tuple[str, int, int, bool]:
+def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool]:
     goal = "Generate a grounded markdown report from the attached workspace documents."
-    max_chars = 2400
     llm_input_chars = 12000
     use_llm = True
     query_parts: list[str] = []
@@ -313,19 +266,9 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, int, bool]:
             use_llm = False
             index += 1
             continue
-        if token == "--max-chars":
+        if token == "--llm-input-chars":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]")
-            try:
-                max_chars = int(args[index + 1])
-            except ValueError as exc:
-                raise SlashToolError("--max-chars must be an integer.") from exc
-            if max_chars < 200:
-                raise SlashToolError("--max-chars must be at least 200.")
-            index += 2
-        elif token == "--llm-input-chars":
-            if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--llm-input-chars N] [query...]")
             try:
                 llm_input_chars = int(args[index + 1])
             except ValueError as exc:
@@ -335,7 +278,7 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, int, bool]:
             index += 2
         elif token == "--goal":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--llm-input-chars N] [query...]")
             goal = " ".join(args[index + 1 :]).strip()
             break
         else:
@@ -343,7 +286,7 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, int, bool]:
             break
     if query_parts:
         goal = " ".join(query_parts).strip()
-    return goal, max_chars, llm_input_chars, use_llm
+    return goal, llm_input_chars, use_llm
 
 
 def _make_llm_client(context: SlashToolContext):

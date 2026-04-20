@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.document_pipeline.schemas import DocumentMap, EvidenceChunk, ExtractedDocument, OutputPlan
+from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, OutputPlan, SelectedEvidence
 
 
 def generate_output_plan(
     output_plan: OutputPlan,
     documents: list[ExtractedDocument],
     doc_map: DocumentMap | None = None,
-    chunks: list[EvidenceChunk] | None = None,
+    selected_evidence: SelectedEvidence | None = None,
 ) -> str:
-    """Write a deterministic markdown fallback from a precomputed output plan."""
+    """Write a deterministic markdown fallback from output plan and selected blocks."""
 
-    chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks or []}
     lines = [
         f"# {output_plan.title}",
         "",
@@ -28,13 +27,13 @@ def generate_output_plan(
         elif section.section_id == "source_documents":
             lines.extend(_source_documents_section(documents, section.title))
         elif section.section_id == "key_evidence":
-            lines.extend(_key_evidence_section(section.title, section.source_chunk_ids, chunks_by_id))
+            lines.extend(_selected_evidence_section(section.title, selected_evidence))
         elif section.section_id == "provenance":
-            lines.extend(_provenance_section(section.title, documents, doc_map, chunks or []))
+            lines.extend(_provenance_section(section.title, documents, doc_map, selected_evidence))
         elif section.section_id == "gaps":
-            lines.extend(_gaps_section(section.title, documents, chunks or []))
+            lines.extend(_gaps_section(section.title, documents, selected_evidence))
         else:
-            lines.extend(_generic_section(section.title, section.source_chunk_ids, chunks_by_id))
+            lines.extend(_selected_evidence_section(section.title, selected_evidence))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -72,29 +71,27 @@ def _source_documents_section(documents: list[ExtractedDocument], title: str) ->
     return lines
 
 
-def _key_evidence_section(title: str, chunk_ids: list[str], chunks_by_id: dict[str, EvidenceChunk]) -> list[str]:
+def _selected_evidence_section(title: str, selected_evidence: SelectedEvidence | None) -> list[str]:
     lines = [f"## {title}", ""]
-    if not chunk_ids:
-        lines.extend(["_No evidence chunks are available yet._", ""])
+    blocks = selected_evidence.blocks if selected_evidence is not None else []
+    if not blocks:
+        lines.extend(["_No selected evidence blocks are available._", ""])
         return lines
-    for index, chunk_id in enumerate(chunk_ids, start=1):
-        chunk = chunks_by_id.get(chunk_id)
-        if chunk is None:
-            continue
+    for index, block in enumerate(blocks[:12], start=1):
         lines.extend(
             [
                 f"### Evidence {index}",
                 "",
-                f"- chunk_id: `{chunk.chunk_id}`",
-                f"- document_id: `{chunk.document_id}`",
-                f"- source_blocks: {', '.join(f'`{block_id}`' for block_id in chunk.block_ids)}",
+                f"- source: `{block.source_filename}`",
+                f"- block_id: `{block.block_id}`",
+                f"- role: {block.role}",
                 "",
-                _quote_block(_single_line(chunk.text, 700)),
+                _quote_block(_single_line(block.text, 700)),
                 "",
             ]
         )
-    if len(lines) == 2:
-        lines.extend(["_Planned evidence chunks were not found in the current chunk set._", ""])
+    if len(blocks) > 12:
+        lines.append(f"_ {len(blocks) - 12} more selected evidence block(s) omitted._")
     return lines
 
 
@@ -102,7 +99,7 @@ def _provenance_section(
     title: str,
     documents: list[ExtractedDocument],
     doc_map: DocumentMap | None,
-    chunks: list[EvidenceChunk],
+    selected_evidence: SelectedEvidence | None,
 ) -> list[str]:
     lines = [
         f"## {title}",
@@ -112,8 +109,8 @@ def _provenance_section(
         "- `llm_result/document_pipeline/extracted_documents.json`",
         "- `llm_result/document_pipeline/extraction_manifest.json`",
         "- `llm_result/document_pipeline/document_map.json`",
-        "- `llm_result/document_pipeline/chunks.json`",
         "- `llm_result/document_pipeline/output_plan.json`",
+        "- `llm_result/document_pipeline/selected_evidence.json`",
         "- `llm_result/document_pipeline/generated_report.md`",
         "",
         "Source paths:",
@@ -126,38 +123,31 @@ def _provenance_section(
         [
             "",
             f"Document-map blocks: {len(doc_map.blocks) if doc_map is not None else 0}",
-            f"Evidence chunks: {len(chunks)}",
+            f"Selected evidence blocks: {len(selected_evidence.blocks) if selected_evidence is not None else 0}",
             "",
         ]
     )
     return lines
 
 
-def _gaps_section(title: str, documents: list[ExtractedDocument], chunks: list[EvidenceChunk]) -> list[str]:
+def _gaps_section(
+    title: str,
+    documents: list[ExtractedDocument],
+    selected_evidence: SelectedEvidence | None,
+) -> list[str]:
     lines = [f"## {title}", ""]
     gaps = []
     if not documents:
         gaps.append("No supported source documents were extracted from the attached folder.")
-    if documents and not chunks:
-        gaps.append("Documents were extracted, but no retrieval chunks were produced.")
+    if documents and (selected_evidence is None or not selected_evidence.blocks):
+        gaps.append("Documents were extracted, but no evidence blocks were selected.")
     for document in documents:
         if document.warnings:
             gaps.extend(f"{document.source.filename}: {warning}" for warning in document.warnings)
     if not gaps:
-        gaps.append("No extraction warnings were recorded. Review generated evidence before using the report externally.")
+        gaps.append("No extraction warnings were recorded. Review selected evidence before using the report externally.")
     lines.extend(f"- {gap}" for gap in gaps)
     lines.append("")
-    return lines
-
-
-def _generic_section(title: str, chunk_ids: list[str], chunks_by_id: dict[str, EvidenceChunk]) -> list[str]:
-    lines = [f"## {title}", ""]
-    for chunk_id in chunk_ids:
-        chunk = chunks_by_id.get(chunk_id)
-        if chunk is not None:
-            lines.extend([_quote_block(_single_line(chunk.text, 500)), ""])
-    if len(lines) == 2:
-        lines.extend(["_No evidence assigned._", ""])
     return lines
 
 
