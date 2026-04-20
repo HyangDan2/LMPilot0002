@@ -1,4 +1,3 @@
-import json
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,14 +19,8 @@ class FakeReportLLMClient:
     ) -> str:
         prompt = str(messages[-1]["content"])
         self.prompts.append(prompt)
-        if response_format:
-            return json.dumps(
-                {
-                    "summary": "Revenue increased according to extracted evidence.",
-                    "key_points": ["Revenue grew by 10%."],
-                    "source_refs": ["chunk_test"],
-                }
-            )
+        if response_format is not None:
+            raise AssertionError("generate_report should not request JSON chunk summaries.")
         return "# Final Report\n\nRevenue grew by 10% according to `chunk_test`.\n"
 
 
@@ -56,9 +49,11 @@ class GenerateReportOrchestrationTests(unittest.TestCase):
 
         self.assertTrue(result.used_llm)
         self.assertIn("# Final Report", result.markdown)
-        self.assertTrue(result.chunk_summaries)
-        self.assertTrue(result.section_summaries)
+        self.assertEqual(result.chunk_summaries, [])
+        self.assertEqual(result.section_summaries, [])
+        self.assertEqual(len(client.prompts), 1)
         self.assertTrue(any("summarize about revenue" in prompt for prompt in client.prompts))
+        self.assertTrue(any("Grounded report material" in prompt for prompt in client.prompts))
 
     def test_generate_report_falls_back_without_llm_client(self) -> None:
         document = _sample_document()

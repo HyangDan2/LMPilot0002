@@ -24,6 +24,7 @@ class GenerateReportPipelineTests(unittest.TestCase):
             self.assertIn(plan_path, result.saved_files)
             self.assertIn(report_path, result.saved_files)
             self.assertTrue(any("[1/6] Extracting documents" in text for _, text in events))
+            self.assertTrue(any("[5/6] Selecting compact evidence" in text for _, text in events))
             self.assertTrue(any("Saved" in text for _, text in events))
             self.assertTrue(any(kind == "markdown" for kind, _ in events))
 

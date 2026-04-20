@@ -38,7 +38,7 @@ Show which document-pipeline artifacts are available in the attached folder.
 Generate a deterministic markdown report from extracted evidence.
 
 /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]
-Run extraction, mapping, chunking, output planning, context-safe LLM orchestration, and final Markdown report generation in one step.
+Run extraction, mapping, chunking, output planning, compact evidence selection, and one final LLM Markdown call in one step.
 No prerequisite slash command is required. It always rebuilds fresh artifacts from the attached folder.
 Progress and final Markdown stream into the chat while generated_report.md is saved.
 
@@ -77,7 +77,7 @@ Automatic saved outputs:
 Not included yet:
 - summarize_map
 - integrated_result
-- streaming report generation
+- active /generate_report cancellation
 """
 
 

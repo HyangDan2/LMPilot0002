@@ -65,7 +65,7 @@ def generate_report_pipeline(
     _emit(progress, "status", "[4/6] Writing output plan...\n")
     output_plan = write_output_plan(documents, doc_map, chunks, goal=goal)
     _emit(progress, "status", f"Created {len(output_plan.sections)} output-plan section(s).\n")
-    _emit(progress, "status", "[5/6] Running report synthesis...\n")
+    _emit(progress, "status", "[5/6] Selecting compact evidence for final report...\n")
     report = generate_report(
         output_plan,
         documents,
