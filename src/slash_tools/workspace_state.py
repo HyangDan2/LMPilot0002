@@ -124,13 +124,13 @@ def _next_actions(
     has_report: bool,
 ) -> list[str]:
     if not has_documents:
-        return ["/generate_report", "/extract_docs"]
+        return ["/generate_report summarize all output in this folder", "/extract_docs"]
     if not has_map:
-        return ["/generate_report", "/build_doc_map"]
+        return ["/generate_report summarize all output in this folder", "/build_doc_map"]
     if not has_chunks:
-        return ["/generate_report", "/chunk_sections"]
+        return ["/generate_report summarize all output in this folder", "/chunk_sections"]
     if not has_output_plan or not has_report:
-        return ["/generate_report"]
+        return ["/generate_report summarize all output in this folder"]
     return ["Ask a normal question about the generated report", "Re-run /extract_docs if source files changed"]
 
 

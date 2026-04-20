@@ -218,7 +218,7 @@ python run.py --config config.yaml
   /generate_report --no-llm summarize briefly
   ```
 
-  `/generate_report` runs extraction, document mapping, chunking, output planning, context-safe LLM orchestration, and final Markdown report generation. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
+  `/generate_report` runs the complete document-report pipeline. You do not need to run `/extract_docs`, `/build_doc_map`, or `/chunk_sections` first. Each run rebuilds fresh artifacts from the attached folder, then performs extraction, document mapping, chunking, output planning, context-safe LLM orchestration, and final Markdown report generation. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
 
   Slash tools run in a background worker so the GUI stays responsive. Only one slash tool runs at a time because document-pipeline artifacts are saved to shared paths under the attached folder. Normal chat prompts in other sessions can still run while another session is generating a normal LLM response.
 

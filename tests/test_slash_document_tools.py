@@ -117,14 +117,34 @@ class SlashDocumentToolsTests(unittest.TestCase):
 
             result = run_slash_command("/generate_report summarize about demo summary", root, context)
 
+            extracted_path = root / "llm_result" / "document_pipeline" / "extracted_documents.json"
+            manifest_path = root / "llm_result" / "document_pipeline" / "extraction_manifest.json"
+            doc_map_path = root / "llm_result" / "document_pipeline" / "document_map.json"
+            chunks_path = root / "llm_result" / "document_pipeline" / "chunks.json"
             plan_path = root / "llm_result" / "document_pipeline" / "output_plan.json"
+            chunk_summaries_path = root / "llm_result" / "document_pipeline" / "llm_chunk_summaries.json"
+            section_summaries_path = root / "llm_result" / "document_pipeline" / "llm_section_summaries.json"
+            attempts_path = root / "llm_result" / "document_pipeline" / "llm_report_attempts.json"
             report_path = root / "llm_result" / "document_pipeline" / "generated_report.md"
+            self.assertTrue(extracted_path.exists())
+            self.assertTrue(manifest_path.exists())
+            self.assertTrue(doc_map_path.exists())
+            self.assertTrue(chunks_path.exists())
             self.assertTrue(plan_path.exists())
+            self.assertTrue(chunk_summaries_path.exists())
+            self.assertTrue(section_summaries_path.exists())
+            self.assertTrue(attempts_path.exists())
             self.assertTrue(report_path.exists())
             self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["goal"], "summarize about demo summary")
+            self.assertIsNotNone(context.doc_map)
 
         assert result is not None
         self.assertIn("Generated report", result.text)
+        self.assertIn("Automatically ran:", result.text)
+        self.assertIn("- extract_docs", result.text)
+        self.assertIn("- build_doc_map", result.text)
+        self.assertIn("- chunk_sections", result.text)
+        self.assertIn("- write_output_plan", result.text)
         self.assertIn("llm_used: no", result.text)
         self.assertIn("output_plan.json", result.text)
         self.assertIn("generated_report.md", result.text)

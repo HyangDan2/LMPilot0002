@@ -248,6 +248,9 @@ def generate_report_command(
     lines = [
         "Generated report.",
         "",
+        "Automatically ran:",
+        *[f"- {step}" for step in result.prerequisite_steps],
+        "",
         f"- documents: {len(result.documents)}",
         f"- chunks: {len(result.chunks)}",
         f"- plan_sections: {len(result.output_plan.sections)}",

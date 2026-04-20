@@ -30,6 +30,7 @@ class GenerateReportResult:
     markdown: str
     used_llm: bool = False
     fallback_reason: str = ""
+    prerequisite_steps: list[str] = field(default_factory=list)
     saved_files: list[Path] = field(default_factory=list)
 
 
@@ -40,7 +41,12 @@ def generate_report_pipeline(
     llm_client: ReportLLMClient | None = None,
     llm_input_chars: int = 12000,
 ) -> GenerateReportResult:
-    """Run the full report pipeline and save every intermediate artifact."""
+    """Run the full report pipeline from source files and save every artifact.
+
+    This function intentionally does not depend on slash-tool context state. It
+    always extracts documents, builds a map, chunks evidence, writes an output
+    plan, and then generates the final report from the attached folder.
+    """
 
     root = working_folder.expanduser().resolve()
     documents = extract_docs(root, ExtractionContext(working_folder=root))
@@ -75,5 +81,12 @@ def generate_report_pipeline(
         markdown=report.markdown,
         used_llm=report.used_llm,
         fallback_reason=report.fallback_reason,
+        prerequisite_steps=[
+            "extract_docs",
+            "build_doc_map",
+            "chunk_sections",
+            "write_output_plan",
+            "generate_report",
+        ],
         saved_files=saved_files,
     )
