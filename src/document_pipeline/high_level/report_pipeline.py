@@ -24,6 +24,7 @@ from src.document_pipeline.storage import (
 )
 
 from .generate_report import ReportLLMClient, final_markdown_prompt, generate_report
+from .detail_summary import DetailSummaryResult, detail_summaries_markdown, generate_detail_summaries
 from .recursive_summary import RecursiveSummaryResult, run_recursive_summary, should_use_recursive_summary
 from .select_evidence import select_evidence_blocks
 from .write_output_plan import DEFAULT_REPORT_GOAL, write_output_plan
@@ -49,6 +50,9 @@ class GenerateReportResult:
     recursive_merge_levels: int = 0
     selected_evidence_group_count: int = 0
     final_prompt_chars: int = 0
+    detail_summary_count: int = 0
+    detail_used_llm: bool = False
+    detail_fallback_reason: str = ""
 
 
 def generate_report_pipeline(
@@ -57,6 +61,7 @@ def generate_report_pipeline(
     llm_client: ReportLLMClient | None = None,
     llm_input_chars: int = 12000,
     force_refresh: bool = False,
+    generate_detail: bool = False,
     progress: ProgressCallback | None = None,
     cancel_event: Event | None = None,
 ) -> GenerateReportResult:
@@ -152,6 +157,21 @@ def generate_report_pipeline(
         cancel_event=cancel_event,
     )
     timings["llm_generation"] = _elapsed(started)
+
+    _check_cancelled(cancel_event)
+    started = perf_counter()
+    if generate_detail:
+        _emit(progress, "status", "[detail] Generating detail summaries...\n")
+    detail_result = _detail_summaries_for_documents(
+        documents,
+        llm_client,
+        goal,
+        generate_detail,
+        progress,
+        cancel_event,
+    )
+    timings["detail_summaries"] = _elapsed(started)
+
     _check_cancelled(cancel_event)
     _emit(progress, "status", "[8/8] Saving report artifacts...\n")
     started = perf_counter()
@@ -172,6 +192,8 @@ def generate_report_pipeline(
         }),
         _save_json(root, "recursive_summary_levels.json", recursive_result.to_dict()),
         _save_text(root, "final_prompt_preview.txt", prompt_preview),
+        _save_json(root, "detail_summaries.json", detail_result.to_dict()),
+        _save_text(root, "detail_summaries.md", detail_summaries_markdown(detail_result)),
         save_report_attempts(root, report.attempts),
         save_generated_markdown(root, report.markdown),
     ]
@@ -202,6 +224,9 @@ def generate_report_pipeline(
         recursive_merge_levels=recursive_result.merge_level_count,
         selected_evidence_group_count=recursive_result.selected_group_count,
         final_prompt_chars=len(prompt_preview),
+        detail_summary_count=detail_result.summary_count,
+        detail_used_llm=detail_result.used_llm,
+        detail_fallback_reason=detail_result.fallback_reason,
     )
 
 
@@ -226,6 +251,26 @@ def _recursive_summary_for_documents(
         progress=progress,
         cancel_event=cancel_event,
         selected_block_ids=selected_block_ids,
+    )
+
+
+def _detail_summaries_for_documents(
+    documents: list[ExtractedDocument],
+    llm_client: ReportLLMClient | None,
+    goal: str,
+    generate_detail: bool,
+    progress: ProgressCallback | None,
+    cancel_event: Event | None,
+) -> DetailSummaryResult:
+    if not generate_detail:
+        return DetailSummaryResult(enabled=False)
+    return generate_detail_summaries(
+        documents,
+        llm_client,
+        enabled=True,
+        query=goal,
+        progress=progress,
+        cancel_event=cancel_event,
     )
 
 
@@ -332,6 +377,7 @@ def _format_timings(timings: dict[str, float]) -> str:
         ("evidence_selection", "evidence selection"),
         ("recursive_summary", "ranked evidence grouping"),
         ("llm_generation", "LLM generation"),
+        ("detail_summaries", "detail summaries"),
         ("saving", "saving"),
         ("total", "total"),
     ]

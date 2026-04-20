@@ -21,6 +21,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/summarize_file", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
         self.assertIn("selected_evidence.json", result.text)
+        self.assertIn("detail_summaries.json", result.text)
         self.assertIn("What the Document Explicitly Describes", result.text)
         self.assertIn("file_summaries", result.text)
         self.assertNotIn("llm_chunk_summaries.json", result.text)
@@ -199,6 +200,9 @@ class SlashDocumentToolsTests(unittest.TestCase):
                 selected_evidence_group_count=0,
                 recursive_merge_levels=0,
                 final_prompt_chars=0,
+                detail_summary_count=0,
+                detail_used_llm=False,
+                detail_fallback_reason="",
                 saved_files=[
                     root
                     / "llm_result"
@@ -210,14 +214,16 @@ class SlashDocumentToolsTests(unittest.TestCase):
             )
 
             with patch("src.slash_tools.document_pipeline.summarize_file_pipeline", return_value=fake_result) as summarized:
-                result = run_slash_command("/summarize_file report.pptx summarize risks", root, SlashToolContext())
+                result = run_slash_command("/summarize_file --generate-detail true report.pptx summarize risks", root, SlashToolContext())
 
         assert result is not None
         summarized.assert_called_once()
         self.assertIn("Generated file summary", result.text)
         self.assertIn("file: report.pptx", result.text)
         self.assertIn("llm_used: no", result.text)
+        self.assertIn("detail_summaries: 0", result.text)
         self.assertIn("file_summaries/doc_report/generated_summary.md", result.text)
+        self.assertTrue(summarized.call_args.kwargs["generate_detail"])
 
 
 def _sample_document(root: Path) -> ExtractedDocument:

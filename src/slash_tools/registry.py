@@ -88,13 +88,13 @@ SLASH_TOOLS: dict[str, SlashTool] = {
     "/generate_report": SlashTool(
         "/generate_report",
         "Run extraction, mapping, output planning, evidence selection, and Markdown report generation.",
-        "/generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]",
+        "/generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]",
         generate_report_command,
     ),
     "/summarize_file": SlashTool(
         "/summarize_file",
         "Summarize one supported file from the attached folder.",
-        "/summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]",
+        "/summarize_file <path> [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]",
         summarize_file_command,
     ),
 }

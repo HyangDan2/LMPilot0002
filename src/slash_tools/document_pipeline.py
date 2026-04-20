@@ -204,7 +204,7 @@ def generate_report_command(
     args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
-    goal, llm_input_chars, use_llm, force_refresh = _parse_generate_report_args(args)
+    goal, llm_input_chars, use_llm, force_refresh, generate_detail = _parse_generate_report_args(args)
     context.reset_for_folder(root) if not _same_working_folder(context.working_folder, root) else None
     llm_client = _make_llm_client(context) if use_llm else None
     result = generate_report_pipeline(
@@ -213,6 +213,7 @@ def generate_report_command(
         llm_client=llm_client,
         llm_input_chars=llm_input_chars,
         force_refresh=force_refresh,
+        generate_detail=generate_detail,
         progress=progress,
         cancel_event=context.cancel_event,
     )
@@ -232,6 +233,8 @@ def generate_report_command(
         f"- selected_evidence_groups: {result.selected_evidence_group_count}",
         f"- recursive_merge_levels: {result.recursive_merge_levels}",
         f"- final_prompt_chars: {result.final_prompt_chars}",
+        f"- detail_summaries: {result.detail_summary_count}",
+        f"- detail_llm_used: {'yes' if result.detail_used_llm else 'no'}",
         f"- plan_sections: {len(result.output_plan.sections)}",
         f"- llm_input_chars: {llm_input_chars}",
         f"- llm_used: {'yes' if result.used_llm else 'no'}",
@@ -243,6 +246,8 @@ def generate_report_command(
     ]
     if result.fallback_reason:
         lines.append(f"- fallback_reason: {result.fallback_reason}")
+    if result.detail_fallback_reason:
+        lines.append(f"- detail_fallback_reason: {result.detail_fallback_reason}")
     return _result(
         "/generate_report",
         "\n".join(lines),
@@ -255,7 +260,7 @@ def summarize_file_command(
     args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
-    file_arg, goal, llm_input_chars, use_llm = _parse_summarize_file_args(args)
+    file_arg, goal, llm_input_chars, use_llm, generate_detail = _parse_summarize_file_args(args)
     path = resolve_workspace_path(root, file_arg)
     llm_client = _make_llm_client(context) if use_llm else None
     result = summarize_file_pipeline(
@@ -264,6 +269,7 @@ def summarize_file_command(
         goal=goal,
         llm_client=llm_client,
         llm_input_chars=llm_input_chars,
+        generate_detail=generate_detail,
         progress=progress,
         cancel_event=context.cancel_event,
     )
@@ -281,6 +287,8 @@ def summarize_file_command(
         f"- selected_evidence_groups: {result.selected_evidence_group_count}",
         f"- recursive_merge_levels: {result.recursive_merge_levels}",
         f"- final_prompt_chars: {result.final_prompt_chars}",
+        f"- detail_summaries: {result.detail_summary_count}",
+        f"- detail_llm_used: {'yes' if result.detail_used_llm else 'no'}",
         f"- llm_input_chars: {llm_input_chars}",
         f"- llm_used: {'yes' if result.used_llm else 'no'}",
         f"- goal: {result.output_plan.goal}",
@@ -290,6 +298,8 @@ def summarize_file_command(
     ]
     if result.fallback_reason:
         lines.append(f"- fallback_reason: {result.fallback_reason}")
+    if result.detail_fallback_reason:
+        lines.append(f"- detail_fallback_reason: {result.detail_fallback_reason}")
     return _result(
         "/summarize_file",
         "\n".join(lines),
@@ -311,11 +321,12 @@ def _ensure_documents(root: Path, context: SlashToolContext) -> None:
         raise SlashToolError(f"Could not load extracted_documents.json: {exc}") from exc
 
 
-def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool, bool]:
+def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool, bool, bool]:
     goal = "Generate a concise engineering report from the attached workspace documents."
     llm_input_chars = 12000
     use_llm = True
     force_refresh = False
+    generate_detail = False
     query_parts: list[str] = []
     index = 0
     while index < len(args):
@@ -328,9 +339,15 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool, bool]:
             force_refresh = True
             index += 1
             continue
+        if token == "--generate-detail":
+            if index + 1 >= len(args):
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]")
+            generate_detail = _parse_bool_option("--generate-detail", args[index + 1])
+            index += 2
+            continue
         if token == "--llm-input-chars":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]")
             try:
                 llm_input_chars = int(args[index + 1])
             except ValueError as exc:
@@ -340,7 +357,7 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool, bool]:
             index += 2
         elif token == "--goal":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]")
             goal = " ".join(args[index + 1 :]).strip()
             break
         else:
@@ -348,14 +365,15 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool, bool]:
             break
     if query_parts:
         goal = " ".join(query_parts).strip()
-    return goal, llm_input_chars, use_llm, force_refresh
+    return goal, llm_input_chars, use_llm, force_refresh, generate_detail
 
 
-def _parse_summarize_file_args(args: list[str]) -> tuple[str, str, int, bool]:
+def _parse_summarize_file_args(args: list[str]) -> tuple[str, str, int, bool, bool]:
     if not args:
-        raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]")
+        raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]")
     llm_input_chars = 12000
     use_llm = True
+    generate_detail = False
     file_arg = ""
     query_parts: list[str] = []
     index = 0
@@ -367,7 +385,7 @@ def _parse_summarize_file_args(args: list[str]) -> tuple[str, str, int, bool]:
             continue
         if token == "--llm-input-chars":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]")
+                raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]")
             try:
                 llm_input_chars = int(args[index + 1])
             except ValueError as exc:
@@ -376,15 +394,32 @@ def _parse_summarize_file_args(args: list[str]) -> tuple[str, str, int, bool]:
                 raise SlashToolError("--llm-input-chars must be at least 800.")
             index += 2
             continue
+        if token == "--generate-detail":
+            if index + 1 >= len(args):
+                raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]")
+            generate_detail = _parse_bool_option("--generate-detail", args[index + 1])
+            index += 2
+            continue
         if token.startswith("--"):
             raise SlashToolError(f"Unknown /summarize_file option: {token}")
-        file_arg = token
-        query_parts.extend(args[index + 1 :])
-        break
+        if not file_arg:
+            file_arg = token
+        else:
+            query_parts.append(token)
+        index += 1
     if not file_arg:
-        raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]")
+        raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]")
     goal = " ".join(query_parts).strip() or "Summarize this file as a concise engineering summary."
-    return file_arg, goal, llm_input_chars, use_llm
+    return file_arg, goal, llm_input_chars, use_llm, generate_detail
+
+
+def _parse_bool_option(option: str, value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise SlashToolError(f"{option} must be true or false.")
 
 
 def _make_llm_client(context: SlashToolContext):

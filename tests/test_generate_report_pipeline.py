@@ -81,16 +81,27 @@ class GenerateReportPipelineTests(unittest.TestCase):
             save_extracted_documents(root, [document])
             save_manifest(root, [document])
 
-            result = generate_report_pipeline(root, goal="Large report", progress=lambda kind, text: events.append((kind, text)))
+            result = generate_report_pipeline(
+                root,
+                goal="Large report",
+                generate_detail=True,
+                progress=lambda kind, text: events.append((kind, text)),
+            )
 
             self.assertEqual(result.mode, "ranked-groups")
             self.assertGreater(result.evidence_group_count, 0)
             self.assertGreater(result.selected_evidence_group_count, 0)
             self.assertLessEqual(result.selected_evidence_group_count, 10)
+            self.assertEqual(result.detail_summary_count, 90)
             self.assertTrue((output_dir / "evidence_groups.json").exists())
             self.assertTrue((output_dir / "selected_evidence_groups.json").exists())
+            self.assertTrue((output_dir / "detail_summaries.json").exists())
+            self.assertTrue((output_dir / "detail_summaries.md").exists())
             self.assertTrue(any("Large document set detected" in text for _, text in events))
             self.assertTrue(any("Ranking evidence groups locally; no LLM calls before final generation" in text for _, text in events))
+            self.assertTrue(any("Detail summaries enabled" in text for _, text in events))
+            self.assertTrue(any("[detail] Processing Page 1 1/90" in text for _, text in events))
+            self.assertTrue(any("[detail] Completed Page 90 90/90" in text for _, text in events))
 
     def test_generate_report_pipeline_reuses_empty_extraction_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

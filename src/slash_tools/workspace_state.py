@@ -20,6 +20,8 @@ class WorkspaceState:
     group_summaries_path: str | None = None
     recursive_summary_levels_path: str | None = None
     final_prompt_preview_path: str | None = None
+    detail_summaries_json_path: str | None = None
+    detail_summaries_markdown_path: str | None = None
     report_attempts_path: str | None = None
     generated_markdown_path: str | None = None
     file_summaries_path: str | None = None
@@ -45,6 +47,8 @@ class WorkspaceState:
             f"- group_summaries.json: {_found(self.group_summaries_path)}",
             f"- recursive_summary_levels.json: {_found(self.recursive_summary_levels_path)}",
             f"- final_prompt_preview.txt: {_found(self.final_prompt_preview_path)}",
+            f"- detail_summaries.json: {_found(self.detail_summaries_json_path)}",
+            f"- detail_summaries.md: {_found(self.detail_summaries_markdown_path)}",
             f"- llm_report_attempts.json: {_found(self.report_attempts_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
             f"- file_summaries/: {_found(self.file_summaries_path, self.file_summary_count, 'summary folder(s)')}",
@@ -68,6 +72,8 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     group_summaries_path = output_dir / "group_summaries.json"
     recursive_summary_levels_path = output_dir / "recursive_summary_levels.json"
     final_prompt_preview_path = output_dir / "final_prompt_preview.txt"
+    detail_summaries_json_path = output_dir / "detail_summaries.json"
+    detail_summaries_markdown_path = output_dir / "detail_summaries.md"
     attempts_path = output_dir / "llm_report_attempts.json"
     report_path = output_dir / "generated_report.md"
     file_summaries_path = output_dir / "file_summaries"
@@ -91,6 +97,8 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         group_summaries_path=_path_if_exists(group_summaries_path, root),
         recursive_summary_levels_path=_path_if_exists(recursive_summary_levels_path, root),
         final_prompt_preview_path=_path_if_exists(final_prompt_preview_path, root),
+        detail_summaries_json_path=_path_if_exists(detail_summaries_json_path, root),
+        detail_summaries_markdown_path=_path_if_exists(detail_summaries_markdown_path, root),
         report_attempts_path=_path_if_exists(attempts_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
         file_summaries_path=_path_if_exists(file_summaries_path, root),
