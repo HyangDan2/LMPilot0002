@@ -59,7 +59,7 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 
   * The Stop button interrupts the current request and returns the UI to an idle state.
   * The next send should work without restarting the app.
-  * If multiple sessions are generating, Stop applies only to the currently selected session.
+  * If multiple sessions are generating or running slash tools, Stop applies only to the currently selected session.
 
 ---
 
@@ -220,7 +220,7 @@ python run.py --config config.yaml
 
   `/generate_report` runs the complete document-report pipeline. You do not need to run `/extract_docs`, `/build_doc_map`, or `/chunk_sections` first. Each run rebuilds fresh artifacts from the attached folder, then performs extraction, document mapping, chunking, output planning, compact evidence selection, and one final LLM Markdown call. It does not run LLM summarization chunk by chunk. Progress updates stream into the chat while the tool runs; when the configured backend supports streaming, the final Markdown report streams into the Tool block while also being accumulated and saved as `generated_report.md`. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
 
-  Slash tools run in a background worker so the GUI stays responsive. Only one slash tool runs at a time because document-pipeline artifacts are saved to shared paths under the attached folder. Normal chat prompts in other sessions can still run while another session is generating a normal LLM response.
+  Slash tools run in background workers so the GUI stays responsive. A session can run only one slash tool at a time, but other sessions can run their own slash tools while `/generate_report` is active. Stop cancels the currently selected session's running slash tool or normal generation. Document-pipeline artifacts are still saved to shared paths under the attached folder, so simultaneous report commands against the same folder use last-writer-wins files.
 
   Generated document-pipeline artifacts:
 

@@ -243,6 +243,7 @@ def generate_report_command(
         llm_client=llm_client,
         llm_input_chars=llm_input_chars,
         progress=progress,
+        cancel_event=context.cancel_event,
     )
     context.documents = result.documents
     context.doc_map = result.doc_map
@@ -349,7 +350,9 @@ def _make_llm_client(context: SlashToolContext):
     settings = context.llm_settings
     if settings is None or not getattr(settings, "base_url", "").strip() or not getattr(settings, "model", "").strip():
         return None
-    return OpenAICompatibleClient(settings)
+    client = OpenAICompatibleClient(settings)
+    context.active_llm_client = client
+    return client
 
 
 def _document_summary(document, root: Path) -> str:

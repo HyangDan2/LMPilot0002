@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from threading import Event
 from typing import Any, Callable, Protocol
 
 from src.document_pipeline.schemas import DocumentMap, EvidenceChunk, ExtractedDocument, LLMReportResult, OutputPlan
@@ -29,11 +30,13 @@ def generate_report(
     report_query: str = "",
     max_input_chars: int = 12000,
     progress: ProgressCallback | None = None,
+    cancel_event: Event | None = None,
 ) -> LLMReportResult:
     """Generate final markdown from compact selected evidence with one LLM call."""
 
     query = report_query.strip() or output_plan.goal
     attempts: list[dict[str, Any]] = []
+    _check_cancelled(cancel_event)
     if llm_client is None:
         _emit(progress, "status", "LLM client is not configured. Using deterministic fallback report.\n")
         markdown = generate_output_plan(output_plan, documents, doc_map, chunks)
@@ -46,6 +49,7 @@ def generate_report(
         )
 
     selected_chunks = select_evidence_chunks(output_plan, chunks, query, max_input_chars)
+    _check_cancelled(cancel_event)
     _emit(progress, "status", f"Selected {len(selected_chunks)} evidence chunk(s) for the final LLM prompt.\n")
     try:
         markdown = _write_final_markdown(
@@ -57,6 +61,7 @@ def generate_report(
             max_input_chars=max_input_chars,
             attempts=attempts,
             progress=progress,
+            cancel_event=cancel_event,
         )
         return LLMReportResult(
             markdown=markdown,
@@ -131,7 +136,9 @@ def _write_final_markdown(
     max_input_chars: int,
     attempts: list[dict[str, Any]],
     progress: ProgressCallback | None,
+    cancel_event: Event | None,
 ) -> str:
+    _check_cancelled(cancel_event)
     prompt = _final_markdown_prompt(output_plan, documents, selected_chunks, query, max_input_chars)
     messages = [
         {
@@ -144,10 +151,12 @@ def _write_final_markdown(
         {"role": "user", "content": prompt},
     ]
     _emit(progress, "status", "Generating final Markdown report with one LLM call...\n")
+    _check_cancelled(cancel_event)
     stream_chat_completion = getattr(llm_client, "stream_chat_completion", None)
     if callable(stream_chat_completion):
         parts: list[str] = []
         for chunk in stream_chat_completion(messages):
+            _check_cancelled(cancel_event)
             if getattr(chunk, "kind", "") != "final":
                 continue
             text = getattr(chunk, "text", "")
@@ -158,6 +167,7 @@ def _write_final_markdown(
         content = "".join(parts)
     else:
         content = llm_client.chat_completion(messages)
+        _check_cancelled(cancel_event)
         _emit(progress, "markdown", content)
     markdown = content.strip()
     if not markdown:
@@ -243,6 +253,11 @@ def _query_terms(query: str) -> set[str]:
 def _emit(progress: ProgressCallback | None, kind: str, text: str) -> None:
     if progress is not None and text:
         progress(kind, text)
+
+
+def _check_cancelled(cancel_event: Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("Slash tool cancelled.")
 
 
 def _truncate(value: str, max_chars: int) -> str:

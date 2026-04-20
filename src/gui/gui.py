@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import threading
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -141,19 +142,33 @@ class SlashToolWorker(QObject):
         command_text: str,
         working_folder: str | None,
         context: SlashToolContext,
+        cancel_event: threading.Event,
     ) -> None:
         super().__init__()
         self.session_id = session_id
         self.command_text = command_text
         self.working_folder = working_folder
         self.context = context
+        self.cancel_event = cancel_event
+        self.context.cancel_event = cancel_event
+
+    def request_stop(self) -> None:
+        self.cancel_event.set()
+        client = self.context.active_llm_client
+        close_active_request = getattr(client, "close_active_request", None)
+        if callable(close_active_request):
+            close_active_request()
 
     @Slot()
     def run(self) -> None:
         try:
             def emit_progress(kind: str, text: str) -> None:
+                if self.cancel_event.is_set():
+                    raise RuntimeError("Slash tool cancelled.")
                 self.progress.emit(self.session_id, kind, text)
 
+            if self.cancel_event.is_set():
+                raise RuntimeError("Slash tool cancelled.")
             result = run_slash_command(
                 self.command_text,
                 self.working_folder,
@@ -163,9 +178,10 @@ class SlashToolWorker(QObject):
             if result is None:
                 result = error_result("empty slash command", "/unknown")
             self.finished.emit(self.session_id, result, self.context)
-        except Exception:
+        except Exception as exc:
             traceback.print_exc()
-            self.error.emit(self.session_id, "Unexpected internal error while running slash tool.")
+            message = "Slash tool cancelled." if self.cancel_event.is_set() else str(exc) or "Unexpected internal error while running slash tool."
+            self.error.emit(self.session_id, message)
         finally:
             self.done.emit(self.session_id)
 
@@ -188,6 +204,7 @@ class ActiveSlashTool:
     worker: SlashToolWorker
     command_text: str
     stream_parts: list[str] = field(default_factory=list)
+    stop_requested: bool = False
 
 
 class ConnectionTestWorker(QObject):
@@ -218,7 +235,8 @@ class MainWindow(QMainWindow):
         self.current_session_id: int | None = None
         self._active_generations: dict[int, ActiveGeneration] = {}
         self._thread_session_ids: dict[QThread, int] = {}
-        self._active_slash_tool: ActiveSlashTool | None = None
+        self._active_slash_tools: dict[int, ActiveSlashTool] = {}
+        self._slash_tool_thread_session_ids: dict[QThread, int] = {}
         self._connection_test_thread: QThread | None = None
         self._connection_test_worker: ConnectionTestWorker | None = None
         self._streaming_assistant_started = False
@@ -377,11 +395,15 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-        if self._active_slash_tool is not None and self._active_slash_tool.thread.isRunning():
-            self._active_slash_tool.thread.quit()
-            self._active_slash_tool.thread.wait(3000)
-            if self._active_slash_tool.thread.isRunning():
-                self._set_status('Please wait for the active slash tool to finish before closing.')
+        for active in list(self._active_slash_tools.values()):
+            active.stop_requested = True
+            active.worker.request_stop()
+
+        for active in list(self._active_slash_tools.values()):
+            active.thread.quit()
+            active.thread.wait(3000)
+            if active.thread.isRunning():
+                self._set_status('Please wait for active slash tools to finish before closing.')
                 event.ignore()
                 return
 
@@ -520,6 +542,8 @@ class MainWindow(QMainWindow):
             title = session['title']
             if session['id'] in self._active_generations:
                 title = f"{title} [running]"
+            elif session['id'] in self._active_slash_tools:
+                title = f"{title} [tool]"
             item = QListWidgetItem(title)
             item.setData(Qt.UserRole, session['id'])
             self.session_list.addItem(item)
@@ -703,13 +727,13 @@ class MainWindow(QMainWindow):
         self._refresh_controls()
 
     def _handle_slash_tool_command(self, display_user_text: str) -> bool:
-        if self._active_slash_tool is not None:
-            QMessageBox.information(self, 'Send', 'A slash tool is already running.')
-            return True
         if self.current_session_id is None:
             self.on_new_chat()
         assert self.current_session_id is not None
         target_session_id = self.current_session_id
+        if target_session_id in self._active_slash_tools:
+            QMessageBox.information(self, 'Send', 'This session already has a slash tool running.')
+            return True
         self._slash_tool_context.llm_settings = self._current_connection_settings()
         context_snapshot = self._slash_tool_context.copy_for_worker()
         self._append_block('You', display_user_text)
@@ -735,13 +759,16 @@ class MainWindow(QMainWindow):
         context: SlashToolContext,
     ) -> None:
         thread = QThread()
-        worker = SlashToolWorker(session_id, command_text, working_folder, context)
-        self._active_slash_tool = ActiveSlashTool(
+        cancel_event = threading.Event()
+        worker = SlashToolWorker(session_id, command_text, working_folder, context, cancel_event)
+        active = ActiveSlashTool(
             session_id=session_id,
             thread=thread,
             worker=worker,
             command_text=command_text,
         )
+        self._active_slash_tools[session_id] = active
+        self._slash_tool_thread_session_ids[thread] = session_id
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self._on_slash_tool_progress)
@@ -754,14 +781,13 @@ class MainWindow(QMainWindow):
         if self.current_session_id == session_id:
             self._start_tool_stream_block()
             self._append_tool_stream_text(f"Running {command_text}\n\n")
-        if self._active_slash_tool is not None:
-            self._active_slash_tool.stream_parts.append(f"Running {command_text}\n\n")
+        active.stream_parts.append(f"Running {command_text}\n\n")
         self._reload_sessions()
 
     @Slot(int, str, str)
     def _on_slash_tool_progress(self, session_id: int, kind: str, text: str) -> None:
-        active = self._active_slash_tool
-        if active is None or active.session_id != session_id or not text:
+        active = self._active_slash_tools.get(session_id)
+        if active is None or not text:
             return
         formatted = text if kind == "markdown" else text
         active.stream_parts.append(formatted)
@@ -800,17 +826,25 @@ class MainWindow(QMainWindow):
 
     @Slot(int)
     def _quit_slash_tool_thread(self, session_id: int) -> None:
-        if self._active_slash_tool is not None and self._active_slash_tool.session_id == session_id:
-            self._active_slash_tool.thread.quit()
+        active = self._active_slash_tools.get(session_id)
+        if active is not None:
+            active.thread.quit()
 
     @Slot()
     def _cleanup_slash_tool_worker(self) -> None:
-        active = self._active_slash_tool
+        sender = self.sender()
+        if not isinstance(sender, QThread):
+            return
+        session_id = self._slash_tool_thread_session_ids.pop(sender, None)
+        if session_id is None:
+            return
+        active = self._active_slash_tools.pop(session_id, None)
         if active is None:
             return
         active.worker.deleteLater()
         active.thread.deleteLater()
-        self._active_slash_tool = None
+        if self.current_session_id == session_id:
+            self._tool_stream_block_start = None
         self._reload_sessions()
         self._refresh_controls()
 
@@ -819,14 +853,19 @@ class MainWindow(QMainWindow):
         if self.current_session_id is None:
             return
         generation = self._active_generations.get(self.current_session_id)
-        if generation is None:
+        if generation is not None:
+            generation.stop_requested = True
+            self.stop_btn.setDisabled(True)
+            self._set_status('Stopping response...')
+            generation.console.stop_generation()
             return
 
-        generation.stop_requested = True
-
-        self.stop_btn.setDisabled(True)
-        self._set_status('Stopping response...')
-        generation.console.stop_generation()
+        slash_tool = self._active_slash_tools.get(self.current_session_id)
+        if slash_tool is not None:
+            slash_tool.stop_requested = True
+            self.stop_btn.setDisabled(True)
+            self._set_status('Stopping slash tool...')
+            slash_tool.worker.request_stop()
 
     def _start_worker(
         self,
@@ -837,6 +876,7 @@ class MainWindow(QMainWindow):
         self._streaming_assistant_started = False
         self._streaming_block_start = None
         self._reasoning_placeholder_start = None
+        self._tool_stream_block_start = None
         self._tool_stream_block_start = None
         thread = QThread()
         console = self._create_generation_console(settings)
@@ -994,18 +1034,13 @@ class MainWindow(QMainWindow):
             self._connection_test_thread is not None
             and self._connection_test_thread.isRunning()
         )
-        has_running_slash_tool = (
-            self._active_slash_tool is not None
-            and self._active_slash_tool.thread.isRunning()
-        )
+        has_running_slash_tool = bool(self._active_slash_tools)
         current_slash_tool_running = (
-            has_running_slash_tool
-            and self.current_session_id is not None
-            and self._active_slash_tool is not None
-            and self._active_slash_tool.session_id == self.current_session_id
+            self.current_session_id is not None
+            and self.current_session_id in self._active_slash_tools
         )
         self.send_btn.setDisabled(current_generating or testing_connection or current_slash_tool_running)
-        self.stop_btn.setDisabled(not current_generating)
+        self.stop_btn.setDisabled(not (current_generating or current_slash_tool_running))
         self.new_chat_btn.setDisabled(testing_connection)
         self.session_list.setDisabled(False)
         self.test_connection_btn.setDisabled(has_active_generation or testing_connection or has_running_slash_tool)
@@ -1058,10 +1093,11 @@ class MainWindow(QMainWindow):
             else:
                 self._show_reasoning_placeholder()
             self._set_status('Generating response...')
-        elif self._active_slash_tool is not None and self._active_slash_tool.session_id == session_id:
+        elif session_id in self._active_slash_tools:
+            active_slash_tool = self._active_slash_tools[session_id]
             self._start_tool_stream_block()
-            stream_text = ''.join(self._active_slash_tool.stream_parts)
-            self._append_tool_stream_text(stream_text or f"Running {self._active_slash_tool.command_text}\n\n")
+            stream_text = ''.join(active_slash_tool.stream_parts)
+            self._append_tool_stream_text(stream_text or f"Running {active_slash_tool.command_text}\n\n")
             self._set_status('Running slash tool...')
         else:
             self._set_status('Idle')
@@ -1271,7 +1307,7 @@ class MainWindow(QMainWindow):
         if session_id in self._active_generations:
             QMessageBox.information(self, 'Delete Session', 'Stop this session before deleting it.')
             return
-        if self._active_slash_tool is not None and self._active_slash_tool.session_id == session_id:
+        if session_id in self._active_slash_tools:
             QMessageBox.information(self, 'Delete Session', 'Wait for the running slash tool before deleting it.')
             return
 

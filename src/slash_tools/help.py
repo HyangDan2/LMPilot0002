@@ -41,6 +41,7 @@ Generate a deterministic markdown report from extracted evidence.
 Run extraction, mapping, chunking, output planning, compact evidence selection, and one final LLM Markdown call in one step.
 No prerequisite slash command is required. It always rebuilds fresh artifacts from the attached folder.
 Progress and final Markdown stream into the chat while generated_report.md is saved.
+Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
 
 Examples:
   /generate_report summarize all output in this folder
