@@ -6,13 +6,11 @@ from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, Output
 DEFAULT_REPORT_GOAL = "Generate a concise engineering report from the attached workspace documents."
 OUTPUT_PLAN_SCHEMA_VERSION = "0.1"
 SUMMARY_SUBSECTIONS = [
-    "Objective",
-    "Engineering Context",
-    "Key Findings",
-    "Technical Details",
-    "Quantitative Results",
-    "Risks and Constraints",
-    "Recommendations",
+    "What the Document Explicitly Describes",
+    "Main Methods or Components Explicitly Mentioned",
+    "Quantitative Values Explicitly Present",
+    "Explicit Limitations or Constraints",
+    "Unclear or Not Specified in Selected Evidence",
 ]
 
 
@@ -30,9 +28,9 @@ def write_output_plan(
             section_id="summary",
             title="Summary",
             purpose=(
-                "Provide a detailed engineering summary with H3 subsections for Objective, "
-                "Engineering Context, Key Findings, Technical Details, Quantitative Results, "
-                "Risks and Constraints, and Recommendations when evidence supports them."
+                "Provide an evidence-grounded summary that separates explicit document content, "
+                "explicitly mentioned methods or components, quantitative values, explicit "
+                "limitations or constraints, and facts not specified in the selected evidence."
             ),
             source_block_ids=all_block_ids[:12],
             max_chars=20480,
@@ -48,7 +46,7 @@ def write_output_plan(
             section_id="open_issues",
             title="Open Issues and Next Actions",
             purpose="Name missing evidence, unclear assumptions, parser limitations, and concrete follow-up actions.",
-            source_block_ids=all_block_ids,
+            source_block_ids=[],
             max_chars=200,
         ),
     ]

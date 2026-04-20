@@ -19,7 +19,8 @@ class SummarizeFileTests(unittest.TestCase):
 
         self.assertIn("File Summary: <filename>", prompt)
         self.assertIn("Summary, Source Details, Open Issues and Next Actions", prompt)
-        self.assertIn("Objective, Engineering Context, Key Findings", prompt)
+        self.assertIn("What the Document Explicitly Describes, Main Methods or Components Explicitly Mentioned", prompt)
+        self.assertIn("Do not infer architecture, databases", prompt)
         self.assertIn("Write each sentence on its own line", prompt)
 
     def test_fallback_file_summary_uses_source_details(self) -> None:
@@ -32,7 +33,7 @@ class SummarizeFileTests(unittest.TestCase):
 
         self.assertIn("# File Summary: report.pptx", markdown)
         self.assertIn("## Summary", markdown)
-        self.assertIn("### Objective", markdown)
+        self.assertIn("### What the Document Explicitly Describes", markdown)
         self.assertIn("## Source Details", markdown)
         self.assertIn("## Open Issues and Next Actions", markdown)
         self.assertIn("Revenue grew by 10%.", markdown)

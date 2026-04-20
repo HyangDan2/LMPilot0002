@@ -43,14 +43,28 @@ class OutputPlanTests(unittest.TestCase):
 
         self.assertIn("# Engineering Report for Report", markdown)
         self.assertIn("## Summary", markdown)
-        self.assertIn("### Objective", markdown)
-        self.assertIn("### Engineering Context", markdown)
-        self.assertIn("### Key Findings", markdown)
-        self.assertIn("### Quantitative Results", markdown)
+        self.assertIn("### What the Document Explicitly Describes", markdown)
+        self.assertIn("### Main Methods or Components Explicitly Mentioned", markdown)
+        self.assertIn("### Quantitative Values Explicitly Present", markdown)
+        self.assertIn("### Explicit Limitations or Constraints", markdown)
         self.assertIn("## Source Documents", markdown)
         self.assertIn("## Open Issues and Next Actions", markdown)
         self.assertIn("Revenue grew by 10%.", markdown)
         self.assertNotIn("## Provenance", markdown)
+
+    def test_select_evidence_seeds_diverse_document_sections(self) -> None:
+        document = _sample_diverse_document()
+        doc_map = build_doc_map([document])
+        plan = write_output_plan([document], doc_map, goal="summarize technical evidence")
+
+        selected = select_evidence_blocks([document], plan, plan.goal, max_input_chars=5000)
+        selected_ids = {block.block_id for block in selected.blocks}
+
+        self.assertIn("blk_intro", selected_ids)
+        self.assertIn("blk_method", selected_ids)
+        self.assertIn("blk_table", selected_ids)
+        self.assertIn("blk_result", selected_ids)
+        self.assertIn("blk_limit", selected_ids)
 
     def test_select_evidence_allows_twelve_blocks_per_document(self) -> None:
         document_a = _sample_document_with_blocks("doc_a", "a.pptx", 14)
@@ -139,6 +153,44 @@ def _sample_document_with_blocks(document_id: str, filename: str, block_count: i
                 provenance=Provenance(source_path=source_path, location_type="slide", slide=index + 1),
             )
             for index in range(block_count)
+        ],
+    )
+
+
+def _sample_diverse_document() -> ExtractedDocument:
+    source_path = str(Path("work") / "diverse.pdf")
+    blocks = [
+        ("blk_intro", "section", "Introduction and purpose of the document.", "text"),
+        ("blk_method", "section", "The method uses a component workflow and module interface.", "text"),
+        ("blk_table", "", "| Parameter | Value |\n|---|---:|\n| Speed | 10 ms |", "table"),
+        ("blk_result", "section", "Validation result shows performance improved by 10%.", "text"),
+        ("blk_limit", "section", "The conclusion notes one explicit limitation and future issue.", "text"),
+    ]
+    return ExtractedDocument(
+        schema_version="0.1",
+        document_id="doc_diverse",
+        source=SourceInfo(
+            path=source_path,
+            filename="diverse.pdf",
+            extension=".pdf",
+            mime_type="application/pdf",
+            size_bytes=6,
+            sha256="diverse",
+        ),
+        metadata=DocumentMetadata(title="Diverse"),
+        blocks=[
+            ExtractedBlock(
+                block_id=block_id,
+                document_id="doc_diverse",
+                type=block_type,
+                role=role,
+                order=index,
+                text=text,
+                normalized_text=text,
+                markdown=text if block_type == "table" else "",
+                provenance=Provenance(source_path=source_path, location_type="page", page=index + 1),
+            )
+            for index, (block_id, role, text, block_type) in enumerate(blocks)
         ],
     )
 

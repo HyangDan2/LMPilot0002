@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event
@@ -22,7 +23,8 @@ from src.document_pipeline.storage import (
     save_selected_evidence,
 )
 
-from .generate_report import ReportLLMClient, generate_report
+from .generate_report import ReportLLMClient, final_markdown_prompt, generate_report
+from .recursive_summary import RecursiveSummaryResult, run_recursive_summary, should_use_recursive_summary
 from .select_evidence import select_evidence_blocks
 from .write_output_plan import DEFAULT_REPORT_GOAL, write_output_plan
 
@@ -42,6 +44,11 @@ class GenerateReportResult:
     timings: dict[str, float] = field(default_factory=dict)
     prerequisite_steps: list[str] = field(default_factory=list)
     saved_files: list[Path] = field(default_factory=list)
+    mode: str = "one-shot"
+    evidence_group_count: int = 0
+    recursive_merge_levels: int = 0
+    selected_evidence_group_count: int = 0
+    final_prompt_chars: int = 0
 
 
 def generate_report_pipeline(
@@ -65,26 +72,26 @@ def generate_report_pipeline(
     total_started = perf_counter()
     timings: dict[str, float] = {}
     _check_cancelled(cancel_event)
-    _emit(progress, "status", "[1/6] Extracting documents...\n")
+    _emit(progress, "status", "[1/8] Extracting documents...\n")
     started = perf_counter()
     documents, extraction_cache_used = _load_or_extract_documents(root, force_refresh, progress, cancel_event)
     timings["extraction"] = _elapsed(started)
     _check_cancelled(cancel_event)
     cache_note = " from cache" if extraction_cache_used else ""
     _emit(progress, "status", f"Extracted {len(documents)} document(s){cache_note} in {_format_seconds(timings['extraction'])}.\n")
-    _emit(progress, "status", "[2/6] Building document map...\n")
+    _emit(progress, "status", "[2/8] Building document map...\n")
     started = perf_counter()
     doc_map = build_doc_map(documents)
     timings["mapping"] = _elapsed(started)
     _check_cancelled(cancel_event)
     _emit(progress, "status", f"Mapped {len(doc_map.blocks)} block(s) in {_format_seconds(timings['mapping'])}.\n")
-    _emit(progress, "status", "[3/6] Writing output plan...\n")
+    _emit(progress, "status", "[3/8] Writing output plan...\n")
     started = perf_counter()
     output_plan = write_output_plan(documents, doc_map, goal=goal)
     timings["planning"] = _elapsed(started)
     _check_cancelled(cancel_event)
     _emit(progress, "status", f"Created {len(output_plan.sections)} output-plan section(s) in {_format_seconds(timings['planning'])}.\n")
-    _emit(progress, "status", "[4/6] Selecting compact evidence blocks...\n")
+    _emit(progress, "status", "[4/8] Selecting representative evidence...\n")
     started = perf_counter()
     selected_evidence = select_evidence_blocks(documents, output_plan, goal, llm_input_chars)
     timings["evidence_selection"] = _elapsed(started)
@@ -94,7 +101,43 @@ def generate_report_pipeline(
         f"Selected {len(selected_evidence.blocks)} evidence block(s) in {_format_seconds(timings['evidence_selection'])}.\n",
     )
     _check_cancelled(cancel_event)
-    _emit(progress, "status", "[5/6] Generating final reasoned Markdown report...\n")
+    _emit(progress, "status", "[5/8] Building ranked evidence groups...\n")
+    started = perf_counter()
+    recursive_result = _recursive_summary_for_documents(
+        documents,
+        llm_client,
+        goal,
+        llm_input_chars,
+        {block.block_id for block in selected_evidence.blocks},
+        progress,
+        cancel_event,
+    )
+    timings["recursive_summary"] = _elapsed(started)
+    mode = recursive_result.mode
+    if mode == "ranked-groups":
+        _emit(
+            progress,
+            "status",
+            (
+                f"Using ranked-groups mode: {len(recursive_result.groups)} raw group(s), "
+                f"{recursive_result.selected_group_count} selected group(s).\n"
+            ),
+        )
+    else:
+        _emit(progress, "status", f"Ranked evidence grouping not needed for {sum(len(document.blocks) for document in documents)} block(s).\n")
+
+    _emit(progress, "status", "[6/8] Preparing grouped evidence context...\n")
+    prompt_preview = final_markdown_prompt(
+        output_plan,
+        documents,
+        selected_evidence,
+        goal,
+        llm_input_chars,
+        recursive_result.final_summary,
+    )
+    _emit(progress, "status", f"Final prompt preview prepared: {len(prompt_preview)} char(s).\n")
+
+    _emit(progress, "status", "[7/8] Generating final grounded Markdown report...\n")
     started = perf_counter()
     report = generate_report(
         output_plan,
@@ -104,12 +147,13 @@ def generate_report_pipeline(
         llm_client=llm_client,
         report_query=goal,
         max_input_chars=llm_input_chars,
+        recursive_summary=recursive_result.final_summary,
         progress=progress,
         cancel_event=cancel_event,
     )
     timings["llm_generation"] = _elapsed(started)
     _check_cancelled(cancel_event)
-    _emit(progress, "status", "[6/6] Saving report artifacts...\n")
+    _emit(progress, "status", "[8/8] Saving report artifacts...\n")
     started = perf_counter()
     saved_files = [
         save_extracted_documents(root, documents),
@@ -117,6 +161,17 @@ def generate_report_pipeline(
         save_document_map(root, doc_map),
         save_output_plan(root, output_plan),
         save_selected_evidence(root, selected_evidence),
+        _save_json(root, "evidence_groups.json", {
+            "groups": [group.to_dict() for group in recursive_result.groups],
+            "ranked_groups": [group.to_dict() for group in recursive_result.ranked_groups],
+        }),
+        _save_json(root, "selected_evidence_groups.json", recursive_result.to_dict()),
+        _save_json(root, "group_summaries.json", {
+            "groups": [group.to_dict() for group in recursive_result.groups],
+            "group_summaries": [summary.to_dict() for summary in recursive_result.group_summaries],
+        }),
+        _save_json(root, "recursive_summary_levels.json", recursive_result.to_dict()),
+        _save_text(root, "final_prompt_preview.txt", prompt_preview),
         save_report_attempts(root, report.attempts),
         save_generated_markdown(root, report.markdown),
     ]
@@ -142,7 +197,50 @@ def generate_report_pipeline(
             "generate_report",
         ],
         saved_files=saved_files,
+        mode=mode,
+        evidence_group_count=len(recursive_result.groups),
+        recursive_merge_levels=recursive_result.merge_level_count,
+        selected_evidence_group_count=recursive_result.selected_group_count,
+        final_prompt_chars=len(prompt_preview),
     )
+
+
+def _recursive_summary_for_documents(
+    documents: list[ExtractedDocument],
+    llm_client: ReportLLMClient | None,
+    goal: str,
+    llm_input_chars: int,
+    selected_block_ids: set[str],
+    progress: ProgressCallback | None,
+    cancel_event: Event | None,
+) -> RecursiveSummaryResult:
+    if not should_use_recursive_summary(documents, llm_input_chars):
+        return RecursiveSummaryResult(mode="one-shot")
+    block_count = sum(len(document.blocks) for document in documents)
+    _emit(progress, "status", f"Large document set detected: {block_count} block(s). Using ranked evidence grouping.\n")
+    return run_recursive_summary(
+        documents,
+        llm_client,
+        goal,
+        llm_input_chars,
+        progress=progress,
+        cancel_event=cancel_event,
+        selected_block_ids=selected_block_ids,
+    )
+
+
+def _save_json(root: Path, filename: str, payload: object) -> Path:
+    path = root / "llm_result" / "document_pipeline" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def _save_text(root: Path, filename: str, text: str) -> Path:
+    path = root / "llm_result" / "document_pipeline" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 def _emit(progress: ProgressCallback | None, kind: str, text: str) -> None:
@@ -232,6 +330,7 @@ def _format_timings(timings: dict[str, float]) -> str:
         ("mapping", "mapping"),
         ("planning", "planning"),
         ("evidence_selection", "evidence selection"),
+        ("recursive_summary", "ranked evidence grouping"),
         ("llm_generation", "LLM generation"),
         ("saving", "saving"),
         ("total", "total"),

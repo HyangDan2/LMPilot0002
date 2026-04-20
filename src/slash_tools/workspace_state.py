@@ -15,6 +15,11 @@ class WorkspaceState:
     document_map_path: str | None = None
     output_plan_path: str | None = None
     selected_evidence_path: str | None = None
+    evidence_groups_path: str | None = None
+    selected_evidence_groups_path: str | None = None
+    group_summaries_path: str | None = None
+    recursive_summary_levels_path: str | None = None
+    final_prompt_preview_path: str | None = None
     report_attempts_path: str | None = None
     generated_markdown_path: str | None = None
     file_summaries_path: str | None = None
@@ -35,6 +40,11 @@ class WorkspaceState:
             f"- document_map.json: {_found(self.document_map_path)}",
             f"- output_plan.json: {_found(self.output_plan_path)}",
             f"- selected_evidence.json: {_found(self.selected_evidence_path)}",
+            f"- evidence_groups.json: {_found(self.evidence_groups_path)}",
+            f"- selected_evidence_groups.json: {_found(self.selected_evidence_groups_path)}",
+            f"- group_summaries.json: {_found(self.group_summaries_path)}",
+            f"- recursive_summary_levels.json: {_found(self.recursive_summary_levels_path)}",
+            f"- final_prompt_preview.txt: {_found(self.final_prompt_preview_path)}",
             f"- llm_report_attempts.json: {_found(self.report_attempts_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
             f"- file_summaries/: {_found(self.file_summaries_path, self.file_summary_count, 'summary folder(s)')}",
@@ -53,6 +63,11 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     doc_map_path = output_dir / "document_map.json"
     output_plan_path = output_dir / "output_plan.json"
     selected_evidence_path = output_dir / "selected_evidence.json"
+    evidence_groups_path = output_dir / "evidence_groups.json"
+    selected_evidence_groups_path = output_dir / "selected_evidence_groups.json"
+    group_summaries_path = output_dir / "group_summaries.json"
+    recursive_summary_levels_path = output_dir / "recursive_summary_levels.json"
+    final_prompt_preview_path = output_dir / "final_prompt_preview.txt"
     attempts_path = output_dir / "llm_report_attempts.json"
     report_path = output_dir / "generated_report.md"
     file_summaries_path = output_dir / "file_summaries"
@@ -71,6 +86,11 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         document_map_path=_path_if_exists(doc_map_path, root),
         output_plan_path=_path_if_exists(output_plan_path, root),
         selected_evidence_path=_path_if_exists(selected_evidence_path, root),
+        evidence_groups_path=_path_if_exists(evidence_groups_path, root),
+        selected_evidence_groups_path=_path_if_exists(selected_evidence_groups_path, root),
+        group_summaries_path=_path_if_exists(group_summaries_path, root),
+        recursive_summary_levels_path=_path_if_exists(recursive_summary_levels_path, root),
+        final_prompt_preview_path=_path_if_exists(final_prompt_preview_path, root),
         report_attempts_path=_path_if_exists(attempts_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
         file_summaries_path=_path_if_exists(file_summaries_path, root),

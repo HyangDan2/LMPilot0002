@@ -21,7 +21,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/summarize_file", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
         self.assertIn("selected_evidence.json", result.text)
-        self.assertIn("Objective, Engineering Context", result.text)
+        self.assertIn("What the Document Explicitly Describes", result.text)
         self.assertIn("file_summaries", result.text)
         self.assertNotIn("llm_chunk_summaries.json", result.text)
 
@@ -194,6 +194,11 @@ class SlashDocumentToolsTests(unittest.TestCase):
                 used_llm=False,
                 fallback_reason="LLM client is not configured.",
                 timings={"total": 0.01},
+                mode="one-shot",
+                evidence_group_count=0,
+                selected_evidence_group_count=0,
+                recursive_merge_levels=0,
+                final_prompt_chars=0,
                 saved_files=[
                     root
                     / "llm_result"

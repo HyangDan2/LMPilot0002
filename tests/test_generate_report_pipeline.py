@@ -27,15 +27,70 @@ class GenerateReportPipelineTests(unittest.TestCase):
             self.assertEqual(plan_payload["sections"][1]["max_chars"], 200)
             self.assertEqual(plan_payload["sections"][2]["max_chars"], 200)
             self.assertIn("# Engineering Report", report_path.read_text(encoding="utf-8"))
-            self.assertIn("### Objective", report_path.read_text(encoding="utf-8"))
+            self.assertIn("### What the Document Explicitly Describes", report_path.read_text(encoding="utf-8"))
             self.assertIn(plan_path.resolve(), result.saved_files)
             self.assertIn(report_path.resolve(), result.saved_files)
-            self.assertTrue(any("[1/6] Extracting documents" in text for _, text in events))
-            self.assertTrue(any("[4/6] Selecting compact evidence" in text for _, text in events))
+            self.assertTrue(any("[1/8] Extracting documents" in text for _, text in events))
+            self.assertTrue(any("[4/8] Selecting representative evidence" in text for _, text in events))
+            self.assertTrue(any("[6/8] Preparing grouped evidence context" in text for _, text in events))
             self.assertTrue(any("Timings:" in text for _, text in events))
             self.assertTrue(any("Saved" in text for _, text in events))
             self.assertTrue(any(kind == "markdown" for kind, _ in events))
             self.assertIn("total", result.timings)
+            self.assertEqual(result.mode, "one-shot")
+            self.assertTrue((output_dir / "final_prompt_preview.txt").exists())
+
+    def test_generate_report_pipeline_uses_ranked_groups_mode_for_large_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "llm_result" / "document_pipeline"
+            output_dir.mkdir(parents=True)
+            events: list[tuple[str, str]] = []
+
+            from src.document_pipeline.schemas import DocumentMetadata, ExtractedBlock, ExtractedDocument, Provenance, SourceInfo
+            from src.document_pipeline.storage import save_extracted_documents, save_manifest
+
+            source_path = root / "large.pdf"
+            source_path.write_text("sample", encoding="utf-8")
+            document = ExtractedDocument(
+                schema_version="0.1",
+                document_id="doc_large",
+                source=SourceInfo(
+                    path=str(source_path),
+                    filename="large.pdf",
+                    extension=".pdf",
+                    mime_type="application/pdf",
+                    size_bytes=6,
+                    sha256="large",
+                ),
+                metadata=DocumentMetadata(title="Large"),
+                blocks=[
+                    ExtractedBlock(
+                        block_id=f"blk_{index:03d}",
+                        document_id="doc_large",
+                        type="text",
+                        role="section",
+                        order=index,
+                        text=f"Section {index} method result value {index} with explicit evidence.",
+                        normalized_text=f"Section {index} method result value {index} with explicit evidence.",
+                        provenance=Provenance(source_path=str(source_path), location_type="page", page=index + 1),
+                    )
+                    for index in range(90)
+                ],
+            )
+            save_extracted_documents(root, [document])
+            save_manifest(root, [document])
+
+            result = generate_report_pipeline(root, goal="Large report", progress=lambda kind, text: events.append((kind, text)))
+
+            self.assertEqual(result.mode, "ranked-groups")
+            self.assertGreater(result.evidence_group_count, 0)
+            self.assertGreater(result.selected_evidence_group_count, 0)
+            self.assertLessEqual(result.selected_evidence_group_count, 10)
+            self.assertTrue((output_dir / "evidence_groups.json").exists())
+            self.assertTrue((output_dir / "selected_evidence_groups.json").exists())
+            self.assertTrue(any("Large document set detected" in text for _, text in events))
+            self.assertTrue(any("Ranking evidence groups locally; no LLM calls before final generation" in text for _, text in events))
 
     def test_generate_report_pipeline_reuses_empty_extraction_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

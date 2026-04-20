@@ -3,6 +3,12 @@ from __future__ import annotations
 from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, OutputPlan, SelectedEvidence
 from .write_output_plan import SUMMARY_SUBSECTIONS
 
+DESCRIBES_HEADING = "What the Document Explicitly Describes"
+METHODS_HEADING = "Main Methods or Components Explicitly Mentioned"
+QUANTITATIVE_HEADING = "Quantitative Values Explicitly Present"
+LIMITATIONS_HEADING = "Explicit Limitations or Constraints"
+UNSPECIFIED_HEADING = "Unclear or Not Specified in Selected Evidence"
+
 
 def generate_output_plan(
     output_plan: OutputPlan,
@@ -30,11 +36,8 @@ def _summary_section(title: str, selected_evidence: SelectedEvidence | None) -> 
     blocks = selected_evidence.blocks if selected_evidence is not None else []
     blocks_by_heading = _classify_summary_blocks(blocks)
     if not blocks:
-        blocks_by_heading["Key Findings"] = [
-            "No selected evidence blocks are available, so no engineering findings can be stated yet."
-        ]
-        blocks_by_heading["Recommendations"] = [
-            "Attach supported source documents or refresh extraction before using this report externally."
+        blocks_by_heading[UNSPECIFIED_HEADING] = [
+            "No selected evidence blocks are available, so no document facts can be stated yet."
         ]
     for heading in SUMMARY_SUBSECTIONS:
         lines.extend([f"### {heading}", ""])
@@ -42,7 +45,7 @@ def _summary_section(title: str, selected_evidence: SelectedEvidence | None) -> 
         if entries:
             lines.extend(f"- {entry}" for entry in entries[:4])
         else:
-            lines.append("- Evidence is not available for this subsection.")
+            lines.append("- Not explicitly stated in the selected evidence.")
         lines.append("")
     return lines
 
@@ -55,27 +58,36 @@ def _classify_summary_blocks(blocks) -> dict[str, list[str]]:
         heading = _summary_heading_for_text(text)
         grouped[heading].append(f"{text} (`{source}`)")
     if len(blocks) > 8:
-        grouped["Key Findings"].append(f"{len(blocks) - 8} additional evidence block(s) were omitted from this fallback summary.")
+        grouped[UNSPECIFIED_HEADING].append(f"{len(blocks) - 8} additional evidence block(s) were omitted from this fallback summary.")
     return grouped
 
 
 def _summary_heading_for_text(text: str) -> str:
     lowered = text.lower()
-    if any(term in lowered for term in ("objective", "goal", "purpose", "목표", "목적")):
-        return "Objective"
-    if any(term in lowered for term in ("context", "background", "system", "workflow", "process", "배경", "시스템")):
-        return "Engineering Context"
-    if any(term in lowered for term in ("test", "result", "performance", "validation", "검증", "결과", "성능")):
-        return "Key Findings"
-    if any(term in lowered for term in ("spec", "design", "parameter", "requirement", "constraint", "설계", "요구", "제약")):
-        return "Technical Details"
     if any(char.isdigit() for char in text):
-        return "Quantitative Results"
-    if any(term in lowered for term in ("risk", "issue", "failure", "limit", "uncertain", "리스크", "문제", "한계")):
-        return "Risks and Constraints"
-    if any(term in lowered for term in ("recommend", "next", "action", "verify", "검토", "확인", "조치")):
-        return "Recommendations"
-    return "Key Findings"
+        return QUANTITATIVE_HEADING
+    if any(term in lowered for term in ("limit", "constraint", "risk", "issue", "failure", "uncertain", "리스크", "문제", "한계", "제약")):
+        return LIMITATIONS_HEADING
+    if any(
+        term in lowered
+        for term in (
+            "method",
+            "component",
+            "architecture",
+            "algorithm",
+            "system",
+            "workflow",
+            "process",
+            "design",
+            "implementation",
+            "모듈",
+            "방법",
+            "시스템",
+            "설계",
+        )
+    ):
+        return METHODS_HEADING
+    return DESCRIBES_HEADING
 
 
 def _source_documents_section(documents: list[ExtractedDocument], title: str) -> list[str]:
@@ -115,7 +127,7 @@ def _open_issues_section(
             gaps.extend(f"{document.source.filename}: {warning}" for warning in document.warnings)
     if not gaps:
         gaps.append("Review cited evidence before using this engineering report externally.")
-        gaps.append("Verify any assumptions, calculations, and recommendations against source documents.")
+        gaps.append("Treat any topic not explicitly stated in the selected evidence as unspecified.")
     lines.extend(f"- {gap}" for gap in gaps)
     lines.append("")
     return lines

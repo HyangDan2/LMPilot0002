@@ -40,11 +40,11 @@ The saved file summary uses Summary, Source Details, and Open Issues and Next Ac
 File summaries are saved under llm_result/document_pipeline/file_summaries/DOCUMENT_ID/.
 
 /generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]
-Run extraction, mapping, output planning, compact evidence selection, and one final engineering Markdown call in one step.
+Run extraction, mapping, output planning, representative evidence selection, optional local ranked evidence grouping, and one final engineering Markdown call in one step.
 No prerequisite slash command is required. It reuses unchanged extraction artifacts unless --fresh is provided.
-Progress, timings, and final Markdown stream into the chat while generated_report.md is saved.
+Progress, ranked-groups mode status, timings, and final Markdown stream into the chat while generated_report.md is saved.
 The saved report uses Summary, Source Documents, and Open Issues and Next Actions as top-level sections.
-Summary may include Objective, Engineering Context, Key Findings, Technical Details, Quantitative Results, Risks and Constraints, and Recommendations when evidence supports them.
+Summary may include What the Document Explicitly Describes, Main Methods or Components Explicitly Mentioned, Quantitative Values Explicitly Present, Explicit Limitations or Constraints, and Unclear or Not Specified in Selected Evidence.
 Saved report paragraphs place each sentence on a separate line.
 Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
 
@@ -82,6 +82,11 @@ Automatic saved outputs:
 - /build_doc_map saves llm_result/document_pipeline/document_map.json
 - /generate_report saves llm_result/document_pipeline/output_plan.json
 - /generate_report saves llm_result/document_pipeline/selected_evidence.json
+- /generate_report saves llm_result/document_pipeline/evidence_groups.json
+- /generate_report saves llm_result/document_pipeline/selected_evidence_groups.json
+- /generate_report saves llm_result/document_pipeline/group_summaries.json
+- /generate_report saves llm_result/document_pipeline/recursive_summary_levels.json
+- /generate_report saves llm_result/document_pipeline/final_prompt_preview.txt
 - /generate_report saves llm_result/document_pipeline/llm_report_attempts.json
 - /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/generated_summary.md
 - /generate_markdown saves llm_result/document_pipeline/generated_report.md

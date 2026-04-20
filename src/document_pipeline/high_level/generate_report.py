@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from threading import Event
 from typing import Any, Callable, Protocol
 
@@ -31,10 +30,11 @@ def generate_report(
     llm_client: ReportLLMClient | None,
     report_query: str = "",
     max_input_chars: int = 12000,
+    recursive_summary: str = "",
     progress: ProgressCallback | None = None,
     cancel_event: Event | None = None,
 ) -> LLMReportResult:
-    """Generate final markdown from compact selected evidence with one LLM call."""
+    """Generate final markdown from representative evidence and optional grouped context."""
 
     query = report_query.strip() or output_plan.goal
     attempts: list[dict[str, Any]] = []
@@ -60,6 +60,7 @@ def generate_report(
             selected_evidence=selected_evidence,
             query=query,
             max_input_chars=max_input_chars,
+            recursive_summary=recursive_summary,
             attempts=attempts,
             progress=progress,
             cancel_event=cancel_event,
@@ -90,12 +91,13 @@ def _write_final_markdown(
     selected_evidence: SelectedEvidence,
     query: str,
     max_input_chars: int,
+    recursive_summary: str,
     attempts: list[dict[str, Any]],
     progress: ProgressCallback | None,
     cancel_event: Event | None,
 ) -> str:
     _check_cancelled(cancel_event)
-    prompt = _final_markdown_prompt(output_plan, documents, selected_evidence, query, max_input_chars)
+    prompt = final_markdown_prompt(output_plan, documents, selected_evidence, query, max_input_chars, recursive_summary)
     messages = [
         {
             "role": "system",
@@ -136,6 +138,8 @@ def _write_final_markdown(
             "stage": "final_report",
             "status": "succeeded",
             "selected_evidence_block_count": len(selected_evidence.blocks),
+            "final_prompt_chars": len(prompt),
+            "grouped_evidence_context_chars": len(recursive_summary),
             "llm_calls": 1,
         }
     )
@@ -143,51 +147,59 @@ def _write_final_markdown(
     return markdown.rstrip() + "\n"
 
 
-def _final_markdown_prompt(
+def final_markdown_prompt(
     output_plan: OutputPlan,
     documents: list[ExtractedDocument],
     selected_evidence: SelectedEvidence,
     query: str,
     max_input_chars: int,
+    recursive_summary: str = "",
 ) -> str:
-    sources = [
-        {
-            "document_id": document.document_id,
-            "filename": document.source.filename,
-            "extension": document.source.extension,
-            "blocks": len(document.blocks),
-            "assets": len(document.assets),
-        }
+    sources = "\n".join(
+        f"- {document.source.filename} ({document.source.extension}): "
+        f"{len(document.blocks)} block(s), {len(document.assets)} asset(s), document_id={document.document_id}"
         for document in documents
-    ]
-    evidence_packet = format_selected_evidence(selected_evidence)
+    ) or "- none"
     summary_subsections = ", ".join(SUMMARY_SUBSECTIONS)
-    payload = {
-        "report_query": query,
-        "output_plan": output_plan.to_dict(),
-        "source_documents": sources,
-        "selected_evidence_block_count": len(selected_evidence.blocks),
-        "selected_evidence": evidence_packet,
-    }
-    return (
+    instructions = (
         "Write the final report as Markdown only, using a concise engineering-report tone.\n\n"
         "Requirements:\n"
         "- Start with exactly one H1 title.\n"
         "- Use exactly these H2 sections in this order: Summary, Source Documents, Open Issues and Next Actions.\n"
         f"- Under Summary, use H3 subsections when evidence supports them: {summary_subsections}.\n"
-        "- If a Summary subsection lacks evidence, state the gap briefly instead of inventing content.\n"
+        "- If a Summary subsection lacks evidence, write: Not explicitly stated in the selected evidence.\n"
         "- Focus on the report query.\n"
         "- Use only the selected evidence packet.\n"
-        "- In Summary, synthesize technical findings, constraints, data, risks, and recommendations supported by evidence.\n"
+        "- In Summary, summarize only what the evidence explicitly states.\n"
+        "- Do not infer architecture, databases, proprietary engines, implementation details, risks, constraints, or recommendations unless explicitly stated in cited evidence.\n"
+        "- Do not add recommendations unless the selected evidence itself contains recommendations or requested next actions.\n"
         "- In Source Documents, include a compact traceability table for the source files.\n"
-        "- In Open Issues and Next Actions, separate missing evidence, unclear assumptions, parser limitations, and concrete follow-up checks.\n"
-        "- Distinguish facts from assumptions and gaps.\n"
-        "- Include quantitative findings when evidence contains numbers, tests, specs, or results.\n"
+        "- In Open Issues and Next Actions, list only extraction warnings, missing selected evidence, or explicitly stated unresolved items.\n"
+        "- Distinguish explicit facts from unstated items and gaps.\n"
+        "- Include quantitative values only when evidence contains numbers, tests, specs, or results.\n"
         "- Cite source filename and block ID for concrete claims.\n"
         "- Write each sentence on its own line in normal paragraphs.\n"
-        "- Do not add extra H2 sections.\n\n"
-        f"Grounded report material:\n{_truncate(json.dumps(payload, ensure_ascii=False, indent=2), max_input_chars)}"
+        "- Do not add extra H2 sections.\n"
     )
+    context = (
+        f"\nReport query:\n{query}\n\n"
+        f"Source documents:\n{sources}\n\n"
+        f"Output plan title: {output_plan.title}\n"
+        f"Selected evidence block count: {len(selected_evidence.blocks)}\n"
+    )
+    recursive_section = ""
+    if recursive_summary.strip():
+        recursive_section = (
+            "\nTop ranked evidence groups for broad coverage:\n"
+            f"{_truncate(recursive_summary.strip(), max(1000, max_input_chars // 2))}\n"
+        )
+    fixed = instructions + context + recursive_section + "\nSelected evidence for citation checks:\n"
+    evidence_budget = max(800, max_input_chars - len(fixed))
+    evidence_packet = format_selected_evidence(selected_evidence, max_text_chars=1200)
+    return fixed + _truncate(evidence_packet, evidence_budget)
+
+
+_final_markdown_prompt = final_markdown_prompt
 
 
 def _emit(progress: ProgressCallback | None, kind: str, text: str) -> None:
