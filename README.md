@@ -24,16 +24,9 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 
   * Create new session
   * Delete selected session
-* 🧮 Local tool command
-
-  * `/calc 2 + 3 * 4` runs the built-in calculator without calling the model backend
-  * `/help` lists the available custom tool commands
-  * `/render_pptx` turns the currently attached workspace folder into a generated `.pptx`
 * 📎 Folder attachments
 
-  * Attach a workspace folder, then call `/use_file filename instruction` when the model should read one file
   * Double-click an attached file to insert its filename into the input box
-  * Call `/analyze_image filename instruction` to send an attached image to a vision-capable backend
 * 💾 Markdown export and quick copy
 
   * Use **Save Chat** to save the current session as a `.md` file
@@ -151,23 +144,9 @@ python run.py --config config.yaml
 
   The prompt builder uses a recent-message window instead of reprocessing the entire session on every send. The database also has a session summary table and a vector chunk store so future RAG flows can combine a rolling summary, retrieved memory, recent messages, and the current user prompt.
 
-* **Local tools**
+* **Terminal PPTX rendering pipeline**
 
-  The first built-in local tool is a safe calculator command:
-
-  ```text
-  /calc 2 + 3 * 4
-  /calculator (2 + 3) * 4
-  /help
-  ```
-
-  Tool commands run locally before any backend validation, so `/calc` and `/help` work even when the OpenAI-compatible backend is not connected. Results are displayed as `[Tool]` messages and saved in chat history.
-
-  Tools are registered as dictionaries under `src/tools`. Each registry entry includes a name, description, parameter metadata, an OpenAI-compatible schema stub, and a handler. This keeps the current manual command path small while leaving a clean route to future model-driven tool calling.
-
-* **Workspace PPTX rendering**
-
-  `/render_pptx` scans a working folder recursively, parses supported documents, writes normalized JSON, creates a knowledge map, asks an OpenAI-compatible LLM for a strict JSON slide plan, and renders a deterministic PowerPoint file.
+  The terminal pipeline scans a working folder recursively, parses supported documents, writes normalized JSON, creates a knowledge map, asks an OpenAI-compatible LLM for a strict JSON slide plan, and renders a deterministic PowerPoint file.
 
   Supported source files:
 
@@ -181,13 +160,7 @@ python run.py --config config.yaml
   pip install -r requirements.txt
   ```
 
-  Attach a workspace folder with **Attach Folder**, then run from the chat input:
-
-  ```text
-  /render_pptx
-  ```
-
-  The same pipeline can run from a terminal:
+  Run the pipeline from a terminal:
 
   ```bash
   python -m app.main --working-dir data/working --output-dir data/outputs "Create a 7-slide executive summary"
@@ -203,31 +176,11 @@ python run.py --config config.yaml
   <attached-folder>/llm_output/rendered_report_YYYYMMDD_HHMMSS.pptx
   ```
 
-  In the GUI, planner settings come from the active Base URL, API Key, and Model Name fields. For terminal usage, settings are loaded from `config.yaml`; set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. `/render_pptx` uses the same OpenAI-compatible HTTP transport as normal chat. Planning is adaptive: the app summarizes the knowledge map in chunks, recursively splits failed chunks into smaller work, retries without JSON response-format enforcement when needed, and can write local fallback summaries for chunks that still fail. Tune `planner_chunk_chars`, `planner_min_chunk_chars`, `planner_max_retries`, `planner_intermediate_max_tokens`, and `planner_final_max_tokens` for smaller local backends. `/render_pptx` does not accept user arguments.
+  For terminal usage, settings are loaded from `config.yaml`; set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. Planning is adaptive: the app summarizes the knowledge map in chunks, recursively splits failed chunks into smaller work, retries without JSON response-format enforcement when needed, and can write local fallback summaries for chunks that still fail. Tune `planner_chunk_chars`, `planner_min_chunk_chars`, `planner_max_retries`, `planner_intermediate_max_tokens`, `planner_final_max_tokens` for smaller local backends.
 
-* **Attachments and images**
+* **Attachments**
 
-  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files directly inside that selected folder, including `.pptx`; subfolders are not scanned. Selecting a new folder replaces the previous attachment list. Files are not automatically included in every prompt. Double-click an attached file to insert its filename into the input box. To use the selected attachments, type:
-
-  ```text
-  /use_file example.txt summarize this file
-  ```
-
-  The first argument is the attached filename or full path. Everything after the first argument becomes the model instruction, so this is also valid:
-
-  ```text
-  /use_file example.txt translate file to Japanese
-  ```
-
-  The GUI runs `/use_file` first, extracts that file's content, and then sends the transformed prompt through the normal LLM flow. Use **Clear Attachments** to clear the full list. Attachments are ignored unless you call `/use_file`, which prevents accidental huge prompts.
-
-  For image-capable OpenAI-compatible backends, use:
-
-  ```text
-  /analyze_image chart.png summarize the visible trend
-  ```
-
-  `/analyze_image` selects one attached image, sends it as a base64 data URL with the instruction text, and requires a vision-capable chat-completions backend. The completion fallback and CLI backend cannot receive image content.
+  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files directly inside that selected folder, including `.pptx`; subfolders are not scanned. Selecting a new folder replaces the previous attachment list. Files are not automatically included in prompts. Double-click an attached file to insert its filename into the input box. Use **Clear Attachments** to clear the full list.
 
   Supported file types:
 
@@ -268,15 +221,9 @@ GUI (PySide6)
    │      ├── OpenAI-compatible /v1/embeddings
    │      └── cosine similarity search
    │
-   ├── Local Tools
-   │      ├── dict-based registry in src/tools
-   │      ├── calculator command (/calc)
-   │      └── prompt-transforming attachment commands
-   │
-   ├── Attachments
-   │      ├── text/PDF/DOCX/image extraction
-   │      └── explicit /use_file and /analyze_image prompt context
-   │
+  ├── Attachments
+  │      └── folder file listing and filename insertion
+  │
    └── Text Processing
           ├── ANSI strip
           ├── Unicode normalize

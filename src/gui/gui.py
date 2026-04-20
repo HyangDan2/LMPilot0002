@@ -5,7 +5,7 @@ import shlex
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, Protocol
+from typing import Iterator, Protocol
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor, QKeySequence, QShortcut, QTextDocumentFragment
@@ -29,16 +29,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.tools import (
-    PromptToolResult,
-    ToolError,
-    parse_analyze_image_command,
-    parse_use_file_command,
-    run_analyze_image_command,
-    run_tool_command,
-    run_use_file_command,
-)
-
 from .attachment_handler import (
     AttachmentError,
     list_supported_files_in_folder,
@@ -55,7 +45,7 @@ from .console_session import (
 from .database import ChatRepository
 from .llm_client import ChatStreamChunk, OpenAIConnectionSettings
 from .markdown_export import format_chat_markdown, safe_markdown_filename
-from .session_title import DEFAULT_ATTACHMENT_PROMPT, DEFAULT_SESSION_TITLE, derive_session_title_from_input
+from .session_title import DEFAULT_SESSION_TITLE, derive_session_title_from_input
 from .token_handler import (
     ModelPrompt,
     build_memory_context,
@@ -588,37 +578,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, 'Send', 'This session is already generating a response.')
             return
 
-        prompt_tool_result: PromptToolResult | None = None
-        prompt_tool_name = ""
-        model_user_text: Any = display_user_text
-        try:
-            if parse_analyze_image_command(display_user_text) is not None:
-                prompt_tool_result = run_analyze_image_command(display_user_text, list(self._attached_file_paths))
-                prompt_tool_name = "/analyze_image"
-            elif parse_use_file_command(display_user_text) is not None:
-                prompt_tool_result = run_use_file_command(display_user_text, list(self._attached_file_paths))
-                prompt_tool_name = "/use_file"
-        except ToolError as exc:
-            self.input_edit.clear()
-            self._append_local_tool_error(display_user_text, str(exc))
-            return
-
-        if prompt_tool_result is not None:
-            if prompt_tool_name == "/analyze_image" and self.app_config.backend == "cli":
-                self.input_edit.clear()
-                self._append_local_tool_error(
-                    display_user_text,
-                    "/analyze_image requires an OpenAI-compatible or chat-completions vision backend.",
-                )
-                return
-            model_user_text = prompt_tool_result.content
-        elif self._try_handle_tool_command(display_user_text):
-            self.input_edit.clear()
-            return
-
-        used_attachment_paths = [prompt_tool_result.selected_path] if prompt_tool_result is not None else []
-        used_attachment_filenames = self._attached_filenames(used_attachment_paths)
-
         settings = self._apply_connection_settings()
         if self.app_config.backend != "cli" and not settings.base_url:
             QMessageBox.warning(self, 'Missing Base URL', 'Enter a Base URL before sending a prompt.')
@@ -652,7 +611,7 @@ class MainWindow(QMainWindow):
         )
         model_prompt = build_model_prompt_request(
             prior_messages,
-            model_user_text,
+            display_user_text,
             max_prompt_tokens,
             self.app_config.max_prompt_chars,
             self.app_config.system_prompt,
@@ -665,71 +624,15 @@ class MainWindow(QMainWindow):
         )
         self.input_edit.clear()
         self._append_block('You', display_user_text)
-        if used_attachment_filenames:
-            self._append_block(
-                'System',
-                f'Using attached file:\n{self._attached_file_summary(used_attachment_paths)}',
-            )
         if was_limited:
             self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
         self.repository.add_message(target_session_id, 'user', display_user_text)
-        if used_attachment_filenames:
-            assert prompt_tool_result is not None
-            title_text = prompt_tool_result.instruction or DEFAULT_ATTACHMENT_PROMPT
-        else:
-            title_text = display_user_text
-        self._set_new_session_title(target_session_id, title_text, used_attachment_filenames)
+        self._set_new_session_title(target_session_id, display_user_text)
         self._reload_sessions()
         self._select_session_in_list(target_session_id)
         self._set_status('Generating response...')
         self._start_worker(target_session_id, model_prompt, settings)
         self._refresh_controls()
-
-    def _try_handle_tool_command(self, display_user_text: str) -> bool:
-        settings = self._apply_connection_settings()
-        try:
-            result = run_tool_command(
-                display_user_text,
-                attached_folder=self._active_attachment_folder(),
-                connection_settings={
-                    "base_url": settings.base_url,
-                    "api_key": settings.api_key,
-                    "model": settings.model,
-                    "timeout": settings.timeout,
-                    "planner_intermediate_max_tokens": settings.max_tokens,
-                    "planner_final_max_tokens": settings.max_tokens,
-                },
-            )
-        except ToolError as exc:
-            result = f"Tool error: {exc}"
-        if result is None:
-            return False
-        if self.current_session_id is None:
-            self.on_new_chat()
-        assert self.current_session_id is not None
-        self._append_block('You', display_user_text)
-        self._append_block('Tool', result)
-        self.repository.add_message(self.current_session_id, 'user', display_user_text)
-        self.repository.add_message(self.current_session_id, 'tool', result)
-        if self.repository.get_session_title(self.current_session_id) == DEFAULT_SESSION_TITLE:
-            self._set_new_session_title(self.current_session_id, display_user_text)
-        self._set_status('Tool complete')
-        self._reload_sessions()
-        self._select_session_in_list(self.current_session_id)
-        return True
-
-    def _append_local_tool_error(self, display_user_text: str, error_text: str) -> None:
-        if self.current_session_id is None:
-            self.on_new_chat()
-        assert self.current_session_id is not None
-        result = f"Tool error: {error_text}"
-        self._append_block('You', display_user_text)
-        self._append_block('Tool', result)
-        self.repository.add_message(self.current_session_id, 'user', display_user_text)
-        self.repository.add_message(self.current_session_id, 'tool', result)
-        self._set_status('Tool error')
-        self._reload_sessions()
-        self._select_session_in_list(self.current_session_id)
 
     @Slot()
     def on_stop_generation(self) -> None:
