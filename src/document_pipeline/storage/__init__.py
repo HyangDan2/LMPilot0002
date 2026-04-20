@@ -1,5 +1,19 @@
-"""Persistence helpers for extracted document packages.
+from .json_store import (
+    load_extracted_documents_payload,
+    pipeline_output_dir,
+    save_chunks,
+    save_document_map,
+    save_extracted_documents,
+    save_manifest,
+    save_single_document,
+)
 
-Reserved for future JSON/asset writers. The current step defines architecture
-contracts only, so persistence remains intentionally minimal.
-"""
+__all__ = [
+    "load_extracted_documents_payload",
+    "pipeline_output_dir",
+    "save_chunks",
+    "save_document_map",
+    "save_extracted_documents",
+    "save_manifest",
+    "save_single_document",
+]

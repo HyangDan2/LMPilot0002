@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.slash_tools import SlashToolContext, run_slash_command
+
 from .attachment_handler import (
     AttachmentError,
     list_supported_files_in_folder,
@@ -172,6 +174,7 @@ class MainWindow(QMainWindow):
         self._reasoning_placeholder_start: int | None = None
         self._attached_file_paths: list[str] = []
         self._attachment_folder_roots: dict[str, str] = {}
+        self._slash_tool_context = SlashToolContext()
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -514,6 +517,7 @@ class MainWindow(QMainWindow):
             existing_paths.add(attachment_path)
 
         self._refresh_attachment_list()
+        self._slash_tool_context.reset_for_folder(Path(root))
         if failures:
             QMessageBox.warning(self, 'Attach Folder', '\n'.join(failures))
 
@@ -577,6 +581,9 @@ class MainWindow(QMainWindow):
         if self.current_session_id is not None and self.current_session_id in self._active_generations:
             QMessageBox.information(self, 'Send', 'This session is already generating a response.')
             return
+        if display_user_text.startswith("/") and self._handle_slash_tool_command(display_user_text):
+            self.input_edit.clear()
+            return
 
         settings = self._apply_connection_settings()
         if self.app_config.backend != "cli" and not settings.base_url:
@@ -633,6 +640,29 @@ class MainWindow(QMainWindow):
         self._set_status('Generating response...')
         self._start_worker(target_session_id, model_prompt, settings)
         self._refresh_controls()
+
+    def _handle_slash_tool_command(self, display_user_text: str) -> bool:
+        result = run_slash_command(
+            display_user_text,
+            self._active_attachment_folder(),
+            self._slash_tool_context,
+        )
+        if result is None:
+            return False
+        if self.current_session_id is None:
+            self.on_new_chat()
+        assert self.current_session_id is not None
+        self._append_block('You', display_user_text)
+        self._append_block('Tool', result)
+        self.repository.add_message(self.current_session_id, 'user', display_user_text)
+        self.repository.add_message(self.current_session_id, 'tool', result)
+        if self.repository.get_session_title(self.current_session_id) == DEFAULT_SESSION_TITLE:
+            self._set_new_session_title(self.current_session_id, display_user_text)
+        self._set_status('Tool complete')
+        self._reload_sessions()
+        self._select_session_in_list(self.current_session_id)
+        self._refresh_controls()
+        return True
 
     @Slot()
     def on_stop_generation(self) -> None:
@@ -926,6 +956,7 @@ class MainWindow(QMainWindow):
     def _clear_attached_files(self) -> None:
         self._attached_file_paths.clear()
         self._attachment_folder_roots.clear()
+        self._slash_tool_context.reset_for_folder(None)
         self._refresh_attachment_list()
 
     def _append_block(self, role: str, text: str) -> None:
