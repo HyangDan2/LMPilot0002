@@ -962,7 +962,10 @@ class MainWindow(QMainWindow):
     def _append_block(self, role: str, text: str) -> None:
         cursor = self.chat_view.textCursor()
         cursor.movePosition(QTextCursor.End)
-        self._insert_markdown_block(cursor, role, text)
+        if role == 'Tool':
+            self._insert_plain_block(cursor, role, text)
+        else:
+            self._insert_markdown_block(cursor, role, text)
         self.chat_view.setTextCursor(cursor)
         self.chat_view.ensureCursorVisible()
 
@@ -1039,8 +1042,13 @@ class MainWindow(QMainWindow):
         try:
             cursor.insertFragment(QTextDocumentFragment.fromMarkdown(block))
             cursor.insertBlock()
-        except (AttributeError, TypeError):
+        except Exception:
             cursor.insertText(block)
+
+    def _insert_plain_block(self, cursor: QTextCursor, role: str, text: str) -> None:
+        text = normalize_text_for_display(text)
+        text = strip_unsupported_chars(text)
+        cursor.insertText(f'[{role}]\n{text}\n\n')
 
     @staticmethod
     def _display_label_for_role(role: str) -> str:

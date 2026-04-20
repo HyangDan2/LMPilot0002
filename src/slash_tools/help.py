@@ -8,16 +8,16 @@ Local slash tools:
 /help
 Show this help text.
 
-/detect_file_type <path>
+/detect_file_type PATH
 Detect extension, MIME type, document family, and confidence for a file inside the attached folder.
 
-/read_file_info <path>
+/read_file_info PATH
 Show file size and SHA-256 hash for a file inside the attached folder.
 
-/normalize_text <text>
+/normalize_text TEXT
 Normalize whitespace, Unicode compatibility characters, and control characters.
 
-/extract_single_doc <path>
+/extract_single_doc PATH
 Extract one supported document from the attached folder.
 
 /extract_docs
@@ -41,7 +41,7 @@ Suggested flow:
 Automatic saved outputs:
 - /extract_docs saves llm_result/document_pipeline/extracted_documents.json
 - /extract_docs saves llm_result/document_pipeline/extraction_manifest.json
-- /extract_single_doc saves llm_result/document_pipeline/documents/<document_id>.json
+- /extract_single_doc saves llm_result/document_pipeline/documents/DOCUMENT_ID.json
 - /build_doc_map saves llm_result/document_pipeline/document_map.json
 - /chunk_sections saves llm_result/document_pipeline/chunks.json
 
