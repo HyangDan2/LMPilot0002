@@ -29,7 +29,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.slash_tools import SlashToolContext, run_slash_command
+from src.slash_tools import SlashToolContext, SlashToolResult, run_slash_command
+from src.slash_tools.results import error_result
 
 from .attachment_handler import (
     AttachmentError,
@@ -128,6 +129,38 @@ class ChatWorker(QObject):
             self.done.emit(self.session_id)
 
 
+class SlashToolWorker(QObject):
+    finished = Signal(int, object, object)
+    error = Signal(int, str)
+    done = Signal(int)
+
+    def __init__(
+        self,
+        session_id: int,
+        command_text: str,
+        working_folder: str | None,
+        context: SlashToolContext,
+    ) -> None:
+        super().__init__()
+        self.session_id = session_id
+        self.command_text = command_text
+        self.working_folder = working_folder
+        self.context = context
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            result = run_slash_command(self.command_text, self.working_folder, self.context)
+            if result is None:
+                result = error_result("empty slash command", "/unknown")
+            self.finished.emit(self.session_id, result, self.context)
+        except Exception:
+            traceback.print_exc()
+            self.error.emit(self.session_id, "Unexpected internal error while running slash tool.")
+        finally:
+            self.done.emit(self.session_id)
+
+
 @dataclass
 class ActiveGeneration:
     session_id: int
@@ -137,6 +170,14 @@ class ActiveGeneration:
     stop_requested: bool = False
     was_streamed: bool = False
     partial_answer: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ActiveSlashTool:
+    session_id: int
+    thread: QThread
+    worker: SlashToolWorker
+    command_text: str
 
 
 class ConnectionTestWorker(QObject):
@@ -167,6 +208,7 @@ class MainWindow(QMainWindow):
         self.current_session_id: int | None = None
         self._active_generations: dict[int, ActiveGeneration] = {}
         self._thread_session_ids: dict[QThread, int] = {}
+        self._active_slash_tool: ActiveSlashTool | None = None
         self._connection_test_thread: QThread | None = None
         self._connection_test_worker: ConnectionTestWorker | None = None
         self._streaming_assistant_started = False
@@ -321,6 +363,14 @@ class MainWindow(QMainWindow):
             self._connection_test_thread.wait(3000)
             if self._connection_test_thread.isRunning():
                 self._set_status('Please wait for the connection test to finish before closing.')
+                event.ignore()
+                return
+
+        if self._active_slash_tool is not None and self._active_slash_tool.thread.isRunning():
+            self._active_slash_tool.thread.quit()
+            self._active_slash_tool.thread.wait(3000)
+            if self._active_slash_tool.thread.isRunning():
+                self._set_status('Please wait for the active slash tool to finish before closing.')
                 event.ignore()
                 return
 
@@ -642,28 +692,96 @@ class MainWindow(QMainWindow):
         self._refresh_controls()
 
     def _handle_slash_tool_command(self, display_user_text: str) -> bool:
-        self._slash_tool_context.llm_settings = self._current_connection_settings()
-        result = run_slash_command(
-            display_user_text,
-            self._active_attachment_folder(),
-            self._slash_tool_context,
-        )
-        if result is None:
-            return False
+        if self._active_slash_tool is not None:
+            QMessageBox.information(self, 'Send', 'A slash tool is already running.')
+            return True
         if self.current_session_id is None:
             self.on_new_chat()
         assert self.current_session_id is not None
+        target_session_id = self.current_session_id
+        self._slash_tool_context.llm_settings = self._current_connection_settings()
+        context_snapshot = self._slash_tool_context.copy_for_worker()
         self._append_block('You', display_user_text)
-        self._append_block('Tool', result.text)
-        self.repository.add_message(self.current_session_id, 'user', display_user_text)
-        self.repository.add_message(self.current_session_id, 'tool', result.history_text)
-        if self.repository.get_session_title(self.current_session_id) == DEFAULT_SESSION_TITLE:
-            self._set_new_session_title(self.current_session_id, display_user_text)
-        self._set_status('Tool complete')
+        self.repository.add_message(target_session_id, 'user', display_user_text)
+        if self.repository.get_session_title(target_session_id) == DEFAULT_SESSION_TITLE:
+            self._set_new_session_title(target_session_id, display_user_text)
         self._reload_sessions()
-        self._select_session_in_list(self.current_session_id)
+        self._select_session_in_list(target_session_id)
+        self._start_slash_tool_worker(
+            target_session_id,
+            display_user_text,
+            self._active_attachment_folder(),
+            context_snapshot,
+        )
         self._refresh_controls()
         return True
+
+    def _start_slash_tool_worker(
+        self,
+        session_id: int,
+        command_text: str,
+        working_folder: str | None,
+        context: SlashToolContext,
+    ) -> None:
+        thread = QThread()
+        worker = SlashToolWorker(session_id, command_text, working_folder, context)
+        self._active_slash_tool = ActiveSlashTool(
+            session_id=session_id,
+            thread=thread,
+            worker=worker,
+            command_text=command_text,
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_slash_tool_success)
+        worker.error.connect(self._on_slash_tool_error)
+        worker.done.connect(self._quit_slash_tool_thread)
+        thread.finished.connect(self._cleanup_slash_tool_worker)
+        thread.start()
+        self._set_status('Running slash tool...')
+        self._reload_sessions()
+
+    @Slot(int, object, object)
+    def _on_slash_tool_success(
+        self,
+        session_id: int,
+        result: SlashToolResult,
+        updated_context: SlashToolContext,
+    ) -> None:
+        self._slash_tool_context.replace_from(updated_context)
+        self.repository.add_message(session_id, 'tool', result.history_text)
+        if self.current_session_id == session_id:
+            self._append_block('Tool', result.text)
+            self._set_status('Tool complete')
+        else:
+            self._set_status('Slash tool complete')
+        self._reload_sessions()
+        self._refresh_controls()
+
+    @Slot(int, str)
+    def _on_slash_tool_error(self, session_id: int, error_text: str) -> None:
+        self.repository.add_message(session_id, 'tool', f'Tool error: {error_text}')
+        if self.current_session_id == session_id:
+            self._append_block('Tool', f'Tool error: {error_text}')
+        self._set_status('Tool error')
+        self._reload_sessions()
+        self._refresh_controls()
+
+    @Slot(int)
+    def _quit_slash_tool_thread(self, session_id: int) -> None:
+        if self._active_slash_tool is not None and self._active_slash_tool.session_id == session_id:
+            self._active_slash_tool.thread.quit()
+
+    @Slot()
+    def _cleanup_slash_tool_worker(self) -> None:
+        active = self._active_slash_tool
+        if active is None:
+            return
+        active.worker.deleteLater()
+        active.thread.deleteLater()
+        self._active_slash_tool = None
+        self._reload_sessions()
+        self._refresh_controls()
 
     @Slot()
     def on_stop_generation(self) -> None:
@@ -844,16 +962,20 @@ class MainWindow(QMainWindow):
             self._connection_test_thread is not None
             and self._connection_test_thread.isRunning()
         )
-        self.send_btn.setDisabled(current_generating or testing_connection)
+        running_slash_tool = (
+            self._active_slash_tool is not None
+            and self._active_slash_tool.thread.isRunning()
+        )
+        self.send_btn.setDisabled(current_generating or testing_connection or running_slash_tool)
         self.stop_btn.setDisabled(not current_generating)
-        self.new_chat_btn.setDisabled(testing_connection)
+        self.new_chat_btn.setDisabled(testing_connection or running_slash_tool)
         self.session_list.setDisabled(False)
-        self.test_connection_btn.setDisabled(has_active_generation or testing_connection)
-        self.save_settings_btn.setDisabled(testing_connection)
-        self.attach_file_btn.setDisabled(testing_connection)
+        self.test_connection_btn.setDisabled(has_active_generation or testing_connection or running_slash_tool)
+        self.save_settings_btn.setDisabled(testing_connection or running_slash_tool)
+        self.attach_file_btn.setDisabled(testing_connection or running_slash_tool)
         self.copy_last_output_btn.setDisabled(testing_connection)
         self.save_chat_btn.setDisabled(testing_connection)
-        self.clear_attachments_btn.setDisabled(testing_connection or not self._attached_file_paths)
+        self.clear_attachments_btn.setDisabled(testing_connection or running_slash_tool or not self._attached_file_paths)
 
     @Slot(QListWidgetItem)
     def _on_attachment_double_clicked(self, item: QListWidgetItem) -> None:
@@ -898,6 +1020,9 @@ class MainWindow(QMainWindow):
             else:
                 self._show_reasoning_placeholder()
             self._set_status('Generating response...')
+        elif self._active_slash_tool is not None and self._active_slash_tool.session_id == session_id:
+            self._append_block('System', f"Slash tool running: {self._active_slash_tool.command_text}")
+            self._set_status('Running slash tool...')
         else:
             self._set_status('Idle')
         cursor = self.chat_view.textCursor()
@@ -1074,6 +1199,9 @@ class MainWindow(QMainWindow):
         session_id = int(session_id)
         if session_id in self._active_generations:
             QMessageBox.information(self, 'Delete Session', 'Stop this session before deleting it.')
+            return
+        if self._active_slash_tool is not None and self._active_slash_tool.session_id == session_id:
+            QMessageBox.information(self, 'Delete Session', 'Wait for the running slash tool before deleting it.')
             return
 
         reply = QMessageBox.question(
