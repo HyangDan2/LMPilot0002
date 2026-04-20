@@ -111,7 +111,7 @@ def handle_token_limits(conversation: list[str], max_tokens: int) -> list[str]:
 
 def _canonical_role(role: str) -> str:
     normalized = role.strip().lower()
-    if normalized in {"assistant", "model", "gemma"}:
+    if normalized in {"assistant", "model", "gemma", "tool"}:
         return "assistant"
     if normalized == "system":
         return "system"
@@ -176,12 +176,15 @@ def _normalize_structured_content(content: list[Any]) -> list[Any]:
 
 
 def format_chat_message(role: str, content: Any) -> dict[str, Any] | None:
+    original_role = role.strip().lower()
     if isinstance(content, list):
         normalized_content = _normalize_structured_content(content)
     else:
         normalized_content = normalize_prompt_text(content)
     if not _content_has_value(normalized_content):
         return None
+    if original_role == "tool" and isinstance(normalized_content, str):
+        normalized_content = f"Local tool output:\n{normalized_content}"
     return {"role": _canonical_role(role), "content": normalized_content}
 
 
@@ -271,6 +274,27 @@ def trim_messages_to_budget(
     return result
 
 
+def coalesce_adjacent_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge adjacent same-role conversation messages for strict chat backends."""
+
+    coalesced: list[dict[str, Any]] = []
+    for message in messages:
+        if (
+            coalesced
+            and message["role"] != "system"
+            and coalesced[-1]["role"] == message["role"]
+            and isinstance(coalesced[-1].get("content"), str)
+            and isinstance(message.get("content"), str)
+        ):
+            coalesced[-1] = {
+                "role": message["role"],
+                "content": f"{coalesced[-1]['content']}\n\n{message['content']}",
+            }
+            continue
+        coalesced.append(message)
+    return coalesced
+
+
 def build_model_prompt_request(
     messages: list[dict[str, Any]],
     current_user_text: Any,
@@ -302,6 +326,7 @@ def build_model_prompt_request(
     if current_message is not None:
         chat_messages.append(current_message)
 
+    chat_messages = coalesce_adjacent_messages(chat_messages)
     trimmed_messages = trim_messages_to_budget(chat_messages, max_tokens, max_chars)
     return ModelPrompt(
         messages=trimmed_messages,
