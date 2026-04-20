@@ -962,20 +962,26 @@ class MainWindow(QMainWindow):
             self._connection_test_thread is not None
             and self._connection_test_thread.isRunning()
         )
-        running_slash_tool = (
+        has_running_slash_tool = (
             self._active_slash_tool is not None
             and self._active_slash_tool.thread.isRunning()
         )
-        self.send_btn.setDisabled(current_generating or testing_connection or running_slash_tool)
+        current_slash_tool_running = (
+            has_running_slash_tool
+            and self.current_session_id is not None
+            and self._active_slash_tool is not None
+            and self._active_slash_tool.session_id == self.current_session_id
+        )
+        self.send_btn.setDisabled(current_generating or testing_connection or current_slash_tool_running)
         self.stop_btn.setDisabled(not current_generating)
-        self.new_chat_btn.setDisabled(testing_connection or running_slash_tool)
+        self.new_chat_btn.setDisabled(testing_connection)
         self.session_list.setDisabled(False)
-        self.test_connection_btn.setDisabled(has_active_generation or testing_connection or running_slash_tool)
-        self.save_settings_btn.setDisabled(testing_connection or running_slash_tool)
-        self.attach_file_btn.setDisabled(testing_connection or running_slash_tool)
+        self.test_connection_btn.setDisabled(has_active_generation or testing_connection or has_running_slash_tool)
+        self.save_settings_btn.setDisabled(testing_connection or has_running_slash_tool)
+        self.attach_file_btn.setDisabled(testing_connection or has_running_slash_tool)
         self.copy_last_output_btn.setDisabled(testing_connection)
         self.save_chat_btn.setDisabled(testing_connection)
-        self.clear_attachments_btn.setDisabled(testing_connection or running_slash_tool or not self._attached_file_paths)
+        self.clear_attachments_btn.setDisabled(testing_connection or has_running_slash_tool or not self._attached_file_paths)
 
     @Slot(QListWidgetItem)
     def _on_attachment_double_clicked(self, item: QListWidgetItem) -> None:

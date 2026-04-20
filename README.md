@@ -17,6 +17,11 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 * 🔤 Unicode normalization (`/uXXXX`, `\\uXXXX`) support
 * 🚫 Emoji & unsupported glyph filtering (prevents rendering issues on Pi)
 * ⚡ Multi-threaded inference (UI never freezes)
+* 🧵 Per-session generation workers
+
+  * One session can generate while you switch to another session and send another prompt.
+  * The selected session is the only one whose Send button is disabled while that session is running.
+  * The backend/server decides whether parallel requests run concurrently, queue, or fail.
 * ⌨️ **Keyboard shortcut**
 
   * `Ctrl + Enter` → Send message
@@ -54,6 +59,7 @@ Designed for Raspberry Pi / Linux environments with stability-focused output han
 
   * The Stop button interrupts the current request and returns the UI to an idle state.
   * The next send should work without restarting the app.
+  * If multiple sessions are generating, Stop applies only to the currently selected session.
 
 ---
 
@@ -213,6 +219,8 @@ python run.py --config config.yaml
   ```
 
   `/generate_report` runs extraction, document mapping, chunking, output planning, context-safe LLM orchestration, and final Markdown report generation. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
+
+  Slash tools run in a background worker so the GUI stays responsive. Only one slash tool runs at a time because document-pipeline artifacts are saved to shared paths under the attached folder. Normal chat prompts in other sessions can still run while another session is generating a normal LLM response.
 
   Generated document-pipeline artifacts:
 
