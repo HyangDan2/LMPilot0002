@@ -48,6 +48,13 @@ Summary may include Objective, Engineering Context, Key Findings, Technical Deta
 Saved report paragraphs place each sentence on a separate line.
 Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
 
+Normal chat generated-artifact access:
+When a model needs a previous generated output, it can request:
+  [read_output] document_pipeline/generated_report.md [/read_output]
+  [list_outputs] document_pipeline [/list_outputs]
+Qwen-style aliases such as [read_file] llm/document_pipeline/generated_report.md [/read_file] are supported.
+Only files under the attached folder's llm_result/ directory can be read or listed.
+
 Examples:
   /summarize_file design_review.pptx
   /summarize_file test_results.xlsx summarize risks and quantitative results

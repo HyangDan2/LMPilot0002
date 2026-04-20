@@ -284,6 +284,22 @@ python run.py --config config.yaml
 
   The LLM orchestration sends compact selected evidence within `--llm-input-chars` and asks the model for a concise engineering report. Lower `--llm-input-chars` for smaller local models.
 
+  During normal chat, the model can request previously generated artifacts from the attached folder. The app safely executes these requests only under `<attached-folder>/llm_result/`, then sends the artifact content back to the model for a follow-up answer. Supported tags:
+
+  ```text
+  [read_output] document_pipeline/generated_report.md [/read_output]
+  [list_outputs] document_pipeline [/list_outputs]
+  ```
+
+  Qwen-style generated-output aliases are also supported:
+
+  ```text
+  [read_file] llm/document_pipeline/generated_report.md [/read_file]
+  [read_file] llm_result/document_pipeline/generated_report.md [/read_file]
+  ```
+
+  Paths are resolved inside the attached folder and cannot escape `llm_result/`.
+
   Other useful tools:
 
   ```text

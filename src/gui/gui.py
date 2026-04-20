@@ -467,6 +467,7 @@ class MainWindow(QMainWindow):
             openai_model=settings.model,
             openai_embedding_model=settings.embedding_model,
             temperature=settings.temperature,
+            artifact_working_folder=self._active_attachment_folder() or "",
         )
 
     def _create_generation_console(self, settings: OpenAIConnectionSettings) -> ChatSession:

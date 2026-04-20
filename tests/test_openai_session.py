@@ -1,5 +1,7 @@
 import unittest
+import tempfile
 from collections.abc import Iterator
+from pathlib import Path
 
 from src.gui.console_session import ConsoleConfig, ConsoleSessionError, OpenAICompatibleSession
 from src.gui.llm_client import ChatStreamChunk, LLMClientError
@@ -105,6 +107,50 @@ class OpenAICompatibleSessionTests(unittest.TestCase):
             [(chunk.kind, chunk.text) for chunk in chunks],
             [("reasoning", ""), ("final", "final answer")],
         )
+        self.assertEqual(client.chat_completion_calls, 2)
+
+    def test_artifact_request_reads_generated_report_and_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = root / "llm_result" / "document_pipeline" / "generated_report.md"
+            report.parent.mkdir(parents=True)
+            report.write_text("# Saved Report\n\nGenerated earlier.", encoding="utf-8")
+            client = FakeOpenAIClient(
+                [],
+                chat_results=[
+                    "[read_file] llm/document_pipeline/generated_report.md [/read_file]",
+                    "The saved report says: Generated earlier.",
+                ],
+            )
+            session = self.make_session(client)
+            session.config.artifact_working_folder = str(root)
+
+            answer = session.ask("What did the generated report say?")
+
+        self.assertEqual(answer, "The saved report says: Generated earlier.")
+        self.assertEqual(client.chat_completion_calls, 2)
+        self.assertIn("Generated artifact access:", client.chat_messages[0][0]["content"])
+        self.assertIn("# Saved Report", client.chat_messages[1][-1]["content"])
+
+    def test_artifact_request_stream_returns_final_followup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = root / "llm_result" / "document_pipeline" / "generated_report.md"
+            report.parent.mkdir(parents=True)
+            report.write_text("# Saved Report\n\nGenerated earlier.", encoding="utf-8")
+            client = FakeOpenAIClient(
+                [],
+                chat_results=[
+                    "[read_file] llm/document_pipeline/generated_report.md [/read_file]",
+                    "final artifact answer",
+                ],
+            )
+            session = self.make_session(client)
+            session.config.artifact_working_folder = str(root)
+
+            chunks = list(session.ask_stream("Read the generated report."))
+
+        self.assertEqual([(chunk.kind, chunk.text) for chunk in chunks], [("final", "final artifact answer")])
         self.assertEqual(client.chat_completion_calls, 2)
 
 

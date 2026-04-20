@@ -12,6 +12,12 @@ from urllib.parse import urlparse
 
 import pexpect
 
+from .artifact_tools import (
+    ARTIFACT_ACCESS_INSTRUCTION,
+    build_artifact_followup_messages,
+    execute_artifact_requests,
+    extract_artifact_requests,
+)
 from .llm_client import ChatStreamChunk, LLMClientError, OpenAICompatibleClient, OpenAIConnectionSettings
 from .token_handler import ModelPrompt, message_content_to_text
 
@@ -90,6 +96,8 @@ class ConsoleConfig:
     openai_model: str = ""
     openai_embedding_model: str = ""
     temperature: float = 0.7
+    artifact_working_folder: str = ""
+    max_artifact_tool_rounds: int = 2
 
     def openai_settings(self) -> OpenAIConnectionSettings:
         return OpenAIConnectionSettings(
@@ -132,16 +140,8 @@ class OpenAICompatibleSession:
 
         messages = self._build_chat_messages(user_text)
 
-        try:
-            answer = self._client.chat_completion(messages)
-        except LLMClientError as exc:
-            if self._is_reasoning_only_error(exc):
-                try:
-                    answer = self._client.chat_completion(self._with_final_answer_retry_instruction(messages))
-                except LLMClientError as retry_exc:
-                    raise ConsoleSessionError(str(retry_exc)) from retry_exc
-            else:
-                raise ConsoleSessionError(str(exc)) from exc
+        answer = self._chat_completion_with_retry(messages)
+        answer = self._resolve_artifact_requests(messages, answer)
 
         if not answer.strip():
             raise ConsoleSessionError("Model returned an empty response.")
@@ -152,14 +152,17 @@ class OpenAICompatibleSession:
             self.start()
 
         messages = self._build_chat_messages(user_text)
+        if self.config.artifact_working_folder:
+            answer = self.ask(user_text)
+            yield ChatStreamChunk(kind="final", text=answer)
+            return
+
         emitted_final_text = False
-        answer_parts: list[str] = []
 
         try:
             for chunk in self._client.stream_chat_completion(messages):
                 if chunk.kind == "final" and chunk.text:
                     emitted_final_text = True
-                    answer_parts.append(chunk.text)
                 yield chunk
         except LLMClientError as exc:
             if str(exc) == "Generation stopped.":
@@ -170,7 +173,7 @@ class OpenAICompatibleSession:
                 return
             raise ConsoleSessionError(str(exc)) from exc
 
-        if not "".join(answer_parts).strip():
+        if not emitted_final_text:
             raise ConsoleSessionError("Model returned an empty response.")
 
     def _build_chat_messages(self, user_text: str | ModelPrompt) -> list[dict[str, Any]]:
@@ -183,7 +186,46 @@ class OpenAICompatibleSession:
 
         if self.config.system_prompt and not any(message.get("role") == "system" for message in messages):
             messages.insert(0, {"role": "system", "content": self.config.system_prompt})
+        if self.config.artifact_working_folder:
+            messages = self._with_artifact_access_instruction(messages)
         return messages
+
+    def _chat_completion_with_retry(self, messages: list[dict[str, Any]]) -> str:
+        try:
+            return self._client.chat_completion(messages)
+        except LLMClientError as exc:
+            if self._is_reasoning_only_error(exc):
+                try:
+                    return self._client.chat_completion(self._with_final_answer_retry_instruction(messages))
+                except LLMClientError as retry_exc:
+                    raise ConsoleSessionError(str(retry_exc)) from retry_exc
+            raise ConsoleSessionError(str(exc)) from exc
+
+    def _resolve_artifact_requests(self, messages: list[dict[str, Any]], answer: str) -> str:
+        if not self.config.artifact_working_folder:
+            return answer
+        current_answer = answer
+        current_messages = messages
+        for _ in range(max(0, self.config.max_artifact_tool_rounds)):
+            requests = extract_artifact_requests(current_answer)
+            if not requests:
+                return current_answer
+            results = execute_artifact_requests(self.config.artifact_working_folder, requests)
+            current_messages = build_artifact_followup_messages(current_messages, current_answer, results)
+            current_answer = self._chat_completion_with_retry(current_messages)
+        return current_answer
+
+    @staticmethod
+    def _with_artifact_access_instruction(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        updated = [dict(message) for message in messages]
+        for message in updated:
+            if message.get("role") == "system":
+                content = message_content_to_text(message.get("content", "")).strip()
+                if "Generated artifact access:" not in content:
+                    message["content"] = f"{content}\n\n{ARTIFACT_ACCESS_INSTRUCTION}".strip()
+                return updated
+        updated.insert(0, {"role": "system", "content": ARTIFACT_ACCESS_INSTRUCTION})
+        return updated
 
     @staticmethod
     def _is_reasoning_only_error(exc: LLMClientError) -> bool:
