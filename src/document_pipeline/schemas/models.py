@@ -191,3 +191,57 @@ class OutputPlan:
             "sections": [section.to_dict() for section in self.sections],
             "source_document_ids": list(self.source_document_ids),
         }
+
+
+@dataclass(frozen=True)
+class ChunkSummary:
+    """LLM or fallback summary for one context-safe chunk batch."""
+
+    summary_id: str
+    chunk_ids: list[str]
+    summary: str
+    key_points: list[str] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
+    fallback: bool = False
+    errors: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class SectionSummary:
+    """Reduced summary aligned to one output-plan section."""
+
+    section_id: str
+    title: str
+    summary: str
+    key_points: list[str] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
+    chunk_summary_ids: list[str] = field(default_factory=list)
+    fallback: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class LLMReportResult:
+    """Final report plus inspectable orchestration artifacts."""
+
+    markdown: str
+    chunk_summaries: list[ChunkSummary] = field(default_factory=list)
+    section_summaries: list[SectionSummary] = field(default_factory=list)
+    attempts: list[dict[str, Any]] = field(default_factory=list)
+    used_llm: bool = False
+    fallback_reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "markdown": self.markdown,
+            "chunk_summaries": [summary.to_dict() for summary in self.chunk_summaries],
+            "section_summaries": [summary.to_dict() for summary in self.section_summaries],
+            "attempts": list(self.attempts),
+            "used_llm": self.used_llm,
+            "fallback_reason": self.fallback_reason,
+        }

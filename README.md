@@ -190,6 +190,57 @@ python run.py --config config.yaml
 
   Plain text files are read as UTF-8 first, with fallback decoding for common local encodings. PDF extraction uses `pypdf`; DOCX extraction uses `python-docx`. Images use `Pillow` for metadata and a local heuristic caption, with OCR attempted through `pytesseract` or the native `tesseract` command when available. Unsupported files in the selected folder are skipped; unreadable supported files show a GUI warning.
 
+* **Document pipeline slash tools**
+
+  The prompt box supports local slash tools for the attached folder. Slash tools run before normal chat generation and save artifacts under:
+
+  ```text
+  <attached-folder>/llm_result/document_pipeline/
+  ```
+
+  Main report command:
+
+  ```text
+  /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]
+  ```
+
+  Examples:
+
+  ```text
+  /generate_report summarize all output in this folder
+  /generate_report summarize about project risks
+  /generate_report --no-llm summarize briefly
+  ```
+
+  `/generate_report` runs extraction, document mapping, chunking, output planning, context-safe LLM orchestration, and final Markdown report generation. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
+
+  Generated document-pipeline artifacts:
+
+  ```text
+  extracted_documents.json
+  extraction_manifest.json
+  document_map.json
+  chunks.json
+  output_plan.json
+  llm_chunk_summaries.json
+  llm_section_summaries.json
+  llm_report_attempts.json
+  generated_report.md
+  ```
+
+  The LLM orchestration does not send every chunk in one prompt. It summarizes chunk batches within `--llm-input-chars`, reduces those summaries by output-plan section, then asks the model for a final Markdown report. This keeps the final report path usable with smaller local models.
+
+  Other useful tools:
+
+  ```text
+  /help
+  /workspace_status
+  /extract_docs
+  /build_doc_map
+  /chunk_sections [--max-chars N]
+  /generate_markdown
+  ```
+
 * **Markdown export**
 
   Use **Save Chat** next to **Clear View** to export the current session messages as Markdown. Use **Copy Last Output** to copy only the latest assistant response to the clipboard.

@@ -15,6 +15,9 @@ class WorkspaceState:
     document_map_path: str | None = None
     chunks_path: str | None = None
     output_plan_path: str | None = None
+    chunk_summaries_path: str | None = None
+    section_summaries_path: str | None = None
+    report_attempts_path: str | None = None
     generated_markdown_path: str | None = None
     document_count: int = 0
     chunk_count: int = 0
@@ -33,6 +36,9 @@ class WorkspaceState:
             f"- document_map.json: {_found(self.document_map_path)}",
             f"- chunks.json: {_found(self.chunks_path, self.chunk_count, 'chunk(s)')}",
             f"- output_plan.json: {_found(self.output_plan_path)}",
+            f"- llm_chunk_summaries.json: {_found(self.chunk_summaries_path)}",
+            f"- llm_section_summaries.json: {_found(self.section_summaries_path)}",
+            f"- llm_report_attempts.json: {_found(self.report_attempts_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
         ]
         if self.next_actions:
@@ -49,6 +55,9 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     doc_map_path = output_dir / "document_map.json"
     chunks_path = output_dir / "chunks.json"
     output_plan_path = output_dir / "output_plan.json"
+    chunk_summaries_path = output_dir / "llm_chunk_summaries.json"
+    section_summaries_path = output_dir / "llm_section_summaries.json"
+    attempts_path = output_dir / "llm_report_attempts.json"
     report_path = output_dir / "generated_report.md"
     document_count = _document_count(extracted_path)
     chunk_count = _chunk_count(chunks_path)
@@ -66,6 +75,9 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         document_map_path=_path_if_exists(doc_map_path, root),
         chunks_path=_path_if_exists(chunks_path, root),
         output_plan_path=_path_if_exists(output_plan_path, root),
+        chunk_summaries_path=_path_if_exists(chunk_summaries_path, root),
+        section_summaries_path=_path_if_exists(section_summaries_path, root),
+        report_attempts_path=_path_if_exists(attempts_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
         document_count=document_count,
         chunk_count=chunk_count,

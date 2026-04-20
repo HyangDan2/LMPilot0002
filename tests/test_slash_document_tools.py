@@ -115,16 +115,17 @@ class SlashDocumentToolsTests(unittest.TestCase):
             root = Path(temp_dir)
             context = SlashToolContext()
 
-            result = run_slash_command('/generate_report --goal "Demo summary"', root, context)
+            result = run_slash_command("/generate_report summarize about demo summary", root, context)
 
             plan_path = root / "llm_result" / "document_pipeline" / "output_plan.json"
             report_path = root / "llm_result" / "document_pipeline" / "generated_report.md"
             self.assertTrue(plan_path.exists())
             self.assertTrue(report_path.exists())
-            self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["goal"], "Demo summary")
+            self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["goal"], "summarize about demo summary")
 
         assert result is not None
         self.assertIn("Generated report", result.text)
+        self.assertIn("llm_used: no", result.text)
         self.assertIn("output_plan.json", result.text)
         self.assertIn("generated_report.md", result.text)
 

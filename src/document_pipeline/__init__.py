@@ -7,26 +7,32 @@ package.
 
 from .schemas import (
     AssetRef,
+    ChunkSummary,
     DocumentMap,
     DocumentMetadata,
     EvidenceChunk,
     ExtractedBlock,
     ExtractedDocument,
+    LLMReportResult,
     OutputPlan,
     OutputPlanSection,
     Provenance,
     SourceInfo,
+    SectionSummary,
 )
 
 __all__ = [
     "AssetRef",
+    "ChunkSummary",
     "DocumentMap",
     "DocumentMetadata",
     "EvidenceChunk",
     "ExtractedBlock",
     "ExtractedDocument",
+    "LLMReportResult",
     "OutputPlan",
     "OutputPlanSection",
     "Provenance",
+    "SectionSummary",
     "SourceInfo",
 ]

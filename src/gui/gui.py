@@ -642,6 +642,7 @@ class MainWindow(QMainWindow):
         self._refresh_controls()
 
     def _handle_slash_tool_command(self, display_user_text: str) -> bool:
+        self._slash_tool_context.llm_settings = self._current_connection_settings()
         result = run_slash_command(
             display_user_text,
             self._active_attachment_folder(),

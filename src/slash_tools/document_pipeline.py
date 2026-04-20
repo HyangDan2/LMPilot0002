@@ -16,6 +16,7 @@ from src.document_pipeline.storage import (
     save_manifest,
     save_single_document,
 )
+from src.gui.llm_client import OpenAICompatibleClient
 
 from .context import SlashToolContext
 from .errors import SlashToolError
@@ -230,26 +231,36 @@ def generate_report_command(
     args: list[str], working_folder: str | Path | None, context: SlashToolContext
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
-    goal, max_chars = _parse_generate_report_args(args)
+    goal, max_chars, llm_input_chars, use_llm = _parse_generate_report_args(args)
     context.reset_for_folder(root) if context.working_folder != root else None
-    result = generate_report_pipeline(root, goal=goal, max_chunk_chars=max_chars)
+    llm_client = _make_llm_client(context) if use_llm else None
+    result = generate_report_pipeline(
+        root,
+        goal=goal,
+        max_chunk_chars=max_chars,
+        llm_client=llm_client,
+        llm_input_chars=llm_input_chars,
+    )
     context.documents = result.documents
     context.doc_map = result.doc_map
     context.chunks = result.chunks
     saved_files = [_relative_to_root(path, root) for path in result.saved_files]
+    lines = [
+        "Generated report.",
+        "",
+        f"- documents: {len(result.documents)}",
+        f"- chunks: {len(result.chunks)}",
+        f"- plan_sections: {len(result.output_plan.sections)}",
+        f"- max_chunk_chars: {max_chars}",
+        f"- llm_input_chars: {llm_input_chars}",
+        f"- llm_used: {'yes' if result.used_llm else 'no'}",
+        f"- goal: {result.output_plan.goal}",
+    ]
+    if result.fallback_reason:
+        lines.append(f"- fallback_reason: {result.fallback_reason}")
     return _result(
         "/generate_report",
-        "\n".join(
-            [
-                "Generated report.",
-                "",
-                f"- documents: {len(result.documents)}",
-                f"- chunks: {len(result.chunks)}",
-                f"- plan_sections: {len(result.output_plan.sections)}",
-                f"- max_chunk_chars: {max_chars}",
-                f"- goal: {result.output_plan.goal}",
-            ]
-        ),
+        "\n".join(lines),
         saved_files=saved_files,
         next_actions=["/workspace_status", "Ask a normal question about the generated report"],
     )
@@ -282,15 +293,22 @@ def _parse_max_chars(args: list[str]) -> int:
     return value
 
 
-def _parse_generate_report_args(args: list[str]) -> tuple[str, int]:
+def _parse_generate_report_args(args: list[str]) -> tuple[str, int, int, bool]:
     goal = "Generate a grounded markdown report from the attached workspace documents."
     max_chars = 2400
+    llm_input_chars = 12000
+    use_llm = True
+    query_parts: list[str] = []
     index = 0
     while index < len(args):
         token = args[index]
+        if token == "--no-llm":
+            use_llm = False
+            index += 1
+            continue
         if token == "--max-chars":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--max-chars N] [--goal TEXT]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]")
             try:
                 max_chars = int(args[index + 1])
             except ValueError as exc:
@@ -298,14 +316,34 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int]:
             if max_chars < 200:
                 raise SlashToolError("--max-chars must be at least 200.")
             index += 2
+        elif token == "--llm-input-chars":
+            if index + 1 >= len(args):
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]")
+            try:
+                llm_input_chars = int(args[index + 1])
+            except ValueError as exc:
+                raise SlashToolError("--llm-input-chars must be an integer.") from exc
+            if llm_input_chars < 800:
+                raise SlashToolError("--llm-input-chars must be at least 800.")
+            index += 2
         elif token == "--goal":
             if index + 1 >= len(args):
-                raise SlashToolError("Usage: /generate_report [--max-chars N] [--goal TEXT]")
+                raise SlashToolError("Usage: /generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]")
             goal = " ".join(args[index + 1 :]).strip()
             break
         else:
-            raise SlashToolError("Usage: /generate_report [--max-chars N] [--goal TEXT]")
-    return goal, max_chars
+            query_parts.extend(args[index:])
+            break
+    if query_parts:
+        goal = " ".join(query_parts).strip()
+    return goal, max_chars, llm_input_chars, use_llm
+
+
+def _make_llm_client(context: SlashToolContext):
+    settings = context.llm_settings
+    if settings is None or not getattr(settings, "base_url", "").strip() or not getattr(settings, "model", "").strip():
+        return None
+    return OpenAICompatibleClient(settings)
 
 
 def _document_summary(document, root: Path) -> str:

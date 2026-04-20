@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from src.document_pipeline.high_level import generate_report_from_plan, write_output_plan
+from src.document_pipeline.high_level import generate_output_plan, write_output_plan
 from src.document_pipeline.mid_level import build_doc_map, chunk_sections
 from src.document_pipeline.schemas import DocumentMetadata, ExtractedBlock, ExtractedDocument, Provenance, SourceInfo
 
@@ -19,13 +19,13 @@ class OutputPlanTests(unittest.TestCase):
         self.assertTrue(plan.sections)
         self.assertIn(chunks[0].chunk_id, plan.sections[0].source_chunk_ids)
 
-    def test_generate_report_from_plan_uses_grounded_evidence(self) -> None:
+    def test_generate_output_plan_uses_grounded_evidence(self) -> None:
         document = _sample_document()
         doc_map = build_doc_map([document])
         chunks = chunk_sections([document])
         plan = write_output_plan([document], doc_map, chunks)
 
-        markdown = generate_report_from_plan(plan, [document], doc_map, chunks)
+        markdown = generate_output_plan(plan, [document], doc_map, chunks)
 
         self.assertIn("# Report for Report", markdown)
         self.assertIn("Revenue grew by 10%.", markdown)

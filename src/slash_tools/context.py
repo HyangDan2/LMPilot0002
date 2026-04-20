@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from src.document_pipeline.schemas import DocumentMap, EvidenceChunk, ExtractedDocument
 
@@ -15,6 +16,7 @@ class SlashToolContext:
     doc_map: DocumentMap | None = None
     chunks: list[EvidenceChunk] = field(default_factory=list)
     saved_files: list[str] = field(default_factory=list)
+    llm_settings: Any | None = None
     last_tool_name: str = ""
     last_tool_summary: str = ""
 

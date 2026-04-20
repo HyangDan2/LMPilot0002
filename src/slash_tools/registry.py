@@ -92,8 +92,8 @@ SLASH_TOOLS: dict[str, SlashTool] = {
     ),
     "/generate_report": SlashTool(
         "/generate_report",
-        "Run extraction, mapping, chunking, internal output planning, and report generation.",
-        "/generate_report [--max-chars N] [--goal TEXT]",
+        "Run extraction, mapping, chunking, output planning, LLM orchestration, and Markdown report generation.",
+        "/generate_report [--no-llm] [--max-chars N] [--llm-input-chars N] [query...]",
         generate_report_command,
     ),
 }
