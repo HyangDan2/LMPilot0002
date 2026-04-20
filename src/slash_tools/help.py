@@ -34,6 +34,11 @@ Show which document-pipeline artifacts are available in the attached folder.
 /generate_markdown
 Generate a deterministic markdown report from extracted evidence.
 
+/summarize_file PATH [--no-llm] [--llm-input-chars N] [query...]
+Summarize one supported file from the attached folder.
+The saved file summary uses Summary, Source Details, and Open Issues and Next Actions.
+File summaries are saved under llm_result/document_pipeline/file_summaries/DOCUMENT_ID/.
+
 /generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]
 Run extraction, mapping, output planning, compact evidence selection, and one final engineering Markdown call in one step.
 No prerequisite slash command is required. It reuses unchanged extraction artifacts unless --fresh is provided.
@@ -44,6 +49,8 @@ Saved report paragraphs place each sentence on a separate line.
 Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
 
 Examples:
+  /summarize_file design_review.pptx
+  /summarize_file test_results.xlsx summarize risks and quantitative results
   /generate_report summarize all output in this folder
   /generate_report summarize about project risks
   /generate_report --no-llm summarize briefly
@@ -53,7 +60,7 @@ Supported file types:
 
 Suggested flow:
 1. Attach a folder.
-2. Run /generate_report.
+2. Run /summarize_file FILE or /generate_report.
 3. Run /workspace_status.
 
 Advanced evidence flow:
@@ -69,6 +76,7 @@ Automatic saved outputs:
 - /generate_report saves llm_result/document_pipeline/output_plan.json
 - /generate_report saves llm_result/document_pipeline/selected_evidence.json
 - /generate_report saves llm_result/document_pipeline/llm_report_attempts.json
+- /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/generated_summary.md
 - /generate_markdown saves llm_result/document_pipeline/generated_report.md
 - /generate_report saves llm_result/document_pipeline/generated_report.md
 

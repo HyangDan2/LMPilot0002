@@ -17,7 +17,9 @@ class WorkspaceState:
     selected_evidence_path: str | None = None
     report_attempts_path: str | None = None
     generated_markdown_path: str | None = None
+    file_summaries_path: str | None = None
     document_count: int = 0
+    file_summary_count: int = 0
     next_actions: list[str] = field(default_factory=list)
 
     def to_text(self) -> str:
@@ -35,6 +37,7 @@ class WorkspaceState:
             f"- selected_evidence.json: {_found(self.selected_evidence_path)}",
             f"- llm_report_attempts.json: {_found(self.report_attempts_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
+            f"- file_summaries/: {_found(self.file_summaries_path, self.file_summary_count, 'summary folder(s)')}",
         ]
         if self.next_actions:
             lines.extend(["", "Suggested next:"])
@@ -52,7 +55,9 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     selected_evidence_path = output_dir / "selected_evidence.json"
     attempts_path = output_dir / "llm_report_attempts.json"
     report_path = output_dir / "generated_report.md"
+    file_summaries_path = output_dir / "file_summaries"
     document_count = _document_count(extracted_path)
+    file_summary_count = _file_summary_count(file_summaries_path)
     next_actions = _next_actions(
         has_documents=extracted_path.exists() and document_count > 0,
         has_map=doc_map_path.exists(),
@@ -68,7 +73,9 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         selected_evidence_path=_path_if_exists(selected_evidence_path, root),
         report_attempts_path=_path_if_exists(attempts_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
+        file_summaries_path=_path_if_exists(file_summaries_path, root),
         document_count=document_count,
+        file_summary_count=file_summary_count,
         next_actions=next_actions,
     )
 
@@ -91,6 +98,12 @@ def _document_count(path: Path) -> int:
         return 0
     documents = payload.get("documents") if isinstance(payload, dict) else None
     return len(documents) if isinstance(documents, list) else 0
+
+
+def _file_summary_count(path: Path) -> int:
+    if not path.is_dir():
+        return 0
+    return sum(1 for child in path.iterdir() if child.is_dir())
 
 
 def _next_actions(

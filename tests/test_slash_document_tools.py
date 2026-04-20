@@ -2,6 +2,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from src.document_pipeline.schemas import DocumentMetadata, ExtractedBlock, ExtractedDocument, Provenance, SourceInfo
 from src.slash_tools import SlashToolContext, run_slash_command
@@ -16,9 +18,11 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/workspace_status", result.text)
         self.assertIn("/generate_markdown", result.text)
         self.assertIn("/generate_report", result.text)
+        self.assertIn("/summarize_file", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
         self.assertIn("selected_evidence.json", result.text)
         self.assertIn("Objective, Engineering Context", result.text)
+        self.assertIn("file_summaries", result.text)
         self.assertNotIn("llm_chunk_summaries.json", result.text)
 
     def test_non_slash_prompt_is_not_handled(self) -> None:
@@ -160,6 +164,52 @@ class SlashDocumentToolsTests(unittest.TestCase):
 
         assert result is not None
         self.assertIn("Generated report", result.text)
+
+    def test_summarize_file_rejects_path_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            result = run_slash_command("/summarize_file ../outside.pptx", root, SlashToolContext())
+
+        assert result is not None
+        self.assertIn("outside the attached working folder", result.text)
+
+    def test_summarize_file_saves_file_summary_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "report.pptx"
+            source.write_bytes(b"sample")
+            document = _sample_document(root)
+            output_plan = SimpleNamespace(goal="summarize risks")
+            selected_evidence = SimpleNamespace(blocks=[document.blocks[0]])
+            fake_result = SimpleNamespace(
+                document=document,
+                doc_map=SimpleNamespace(blocks=[{}]),
+                output_plan=output_plan,
+                selected_evidence=selected_evidence,
+                markdown="# File Summary: report.pptx\n",
+                used_llm=False,
+                fallback_reason="LLM client is not configured.",
+                timings={"total": 0.01},
+                saved_files=[
+                    root
+                    / "llm_result"
+                    / "document_pipeline"
+                    / "file_summaries"
+                    / "doc_report"
+                    / "generated_summary.md"
+                ],
+            )
+
+            with patch("src.slash_tools.document_pipeline.summarize_file_pipeline", return_value=fake_result) as summarized:
+                result = run_slash_command("/summarize_file report.pptx summarize risks", root, SlashToolContext())
+
+        assert result is not None
+        summarized.assert_called_once()
+        self.assertIn("Generated file summary", result.text)
+        self.assertIn("file: report.pptx", result.text)
+        self.assertIn("llm_used: no", result.text)
+        self.assertIn("file_summaries/doc_report/generated_summary.md", result.text)
 
 
 def _sample_document(root: Path) -> ExtractedDocument:

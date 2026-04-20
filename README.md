@@ -213,10 +213,35 @@ python run.py --config config.yaml
   Examples:
 
   ```text
+  /summarize_file design_review.pptx
+  /summarize_file test_results.xlsx summarize risks and quantitative results
   /generate_report summarize all output in this folder
   /generate_report summarize about project risks
   /generate_report --no-llm summarize briefly
   ```
+
+  For quick inspection of one file, use:
+
+  ```text
+  /summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]
+  ```
+
+  `/summarize_file` extracts only the selected file and saves isolated artifacts under:
+
+  ```text
+  <attached-folder>/llm_result/document_pipeline/file_summaries/<document_id>/
+  ```
+
+  The generated single-file summary uses three top-level sections:
+
+  ```text
+  Summary
+  Source Details
+  Open Issues and Next Actions
+  ```
+
+  The `Summary` section may use the same detailed engineering subsections as `/generate_report` when evidence supports them.
+  Saved `generated_summary.md` files also place each normal paragraph sentence on its own line.
 
   `/generate_report` runs the complete engineering-report pipeline. You do not need to run `/extract_docs` or `/build_doc_map` first. The command scans the attached folder, reuses unchanged extraction artifacts when possible, then performs document mapping, output planning, compact evidence selection, and one final LLM Markdown call. Use `--fresh` to force full re-extraction. Progress updates and per-stage timings stream into the chat while the tool runs; when the configured backend supports streaming, the final Markdown report streams into the Tool block while also being accumulated and saved as `generated_report.md`. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
 
@@ -254,6 +279,7 @@ python run.py --config config.yaml
   selected_evidence.json
   llm_report_attempts.json
   generated_report.md
+  file_summaries/<document_id>/generated_summary.md
   ```
 
   The LLM orchestration sends compact selected evidence within `--llm-input-chars` and asks the model for a concise engineering report. Lower `--llm-input-chars` for smaller local models.
@@ -263,6 +289,7 @@ python run.py --config config.yaml
   ```text
   /help
   /workspace_status
+  /summarize_file <path>
   /extract_docs
   /build_doc_map
   /generate_markdown

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.document_pipeline.high_level import generate_markdown_report, generate_report_pipeline
+from src.document_pipeline.high_level import generate_markdown_report, generate_report_pipeline, summarize_file_pipeline
 from src.document_pipeline.low_level import detect_file_type, normalize_text, read_file_bytes
 from src.document_pipeline.mid_level import ExtractionContext, build_doc_map
 from src.document_pipeline.mid_level import extract_docs as extract_docs_mid_level
@@ -246,6 +246,48 @@ def generate_report_command(
     )
 
 
+def summarize_file_command(
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
+) -> SlashToolResult:
+    root = require_working_folder(working_folder)
+    file_arg, goal, llm_input_chars, use_llm = _parse_summarize_file_args(args)
+    path = resolve_workspace_path(root, file_arg)
+    llm_client = _make_llm_client(context) if use_llm else None
+    result = summarize_file_pipeline(
+        root,
+        path,
+        goal=goal,
+        llm_client=llm_client,
+        llm_input_chars=llm_input_chars,
+        progress=progress,
+        cancel_event=context.cancel_event,
+    )
+    context.documents = [result.document]
+    context.doc_map = result.doc_map
+    saved_files = [_relative_to_root(path, root) for path in result.saved_files]
+    lines = [
+        "Generated file summary.",
+        "",
+        f"- file: {_relative_to_root(path, root)}",
+        f"- blocks: {len(result.document.blocks)}",
+        f"- evidence_blocks: {len(result.selected_evidence.blocks)}",
+        f"- llm_input_chars: {llm_input_chars}",
+        f"- llm_used: {'yes' if result.used_llm else 'no'}",
+        f"- goal: {result.output_plan.goal}",
+        "",
+        "Timings:",
+        *[f"- {label}: {value:.2f}s" for label, value in result.timings.items()],
+    ]
+    if result.fallback_reason:
+        lines.append(f"- fallback_reason: {result.fallback_reason}")
+    return _result(
+        "/summarize_file",
+        "\n".join(lines),
+        saved_files=saved_files,
+        next_actions=["/workspace_status", "Ask a normal question about the file summary"],
+    )
+
+
 def _ensure_documents(root: Path, context: SlashToolContext) -> None:
     if context.working_folder != root:
         context.reset_for_folder(root)
@@ -297,6 +339,42 @@ def _parse_generate_report_args(args: list[str]) -> tuple[str, int, bool, bool]:
     if query_parts:
         goal = " ".join(query_parts).strip()
     return goal, llm_input_chars, use_llm, force_refresh
+
+
+def _parse_summarize_file_args(args: list[str]) -> tuple[str, str, int, bool]:
+    if not args:
+        raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]")
+    llm_input_chars = 12000
+    use_llm = True
+    file_arg = ""
+    query_parts: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--no-llm":
+            use_llm = False
+            index += 1
+            continue
+        if token == "--llm-input-chars":
+            if index + 1 >= len(args):
+                raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]")
+            try:
+                llm_input_chars = int(args[index + 1])
+            except ValueError as exc:
+                raise SlashToolError("--llm-input-chars must be an integer.") from exc
+            if llm_input_chars < 800:
+                raise SlashToolError("--llm-input-chars must be at least 800.")
+            index += 2
+            continue
+        if token.startswith("--"):
+            raise SlashToolError(f"Unknown /summarize_file option: {token}")
+        file_arg = token
+        query_parts.extend(args[index + 1 :])
+        break
+    if not file_arg:
+        raise SlashToolError("Usage: /summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]")
+    goal = " ".join(query_parts).strip() or "Summarize this file as a concise engineering summary."
+    return file_arg, goal, llm_input_chars, use_llm
 
 
 def _make_llm_client(context: SlashToolContext):

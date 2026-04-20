@@ -15,6 +15,7 @@ from .document_pipeline import (
     generate_report_command,
     normalize_text_command,
     read_file_info_command,
+    summarize_file_command,
     workspace_status_command,
 )
 from .errors import SlashToolError
@@ -89,6 +90,12 @@ SLASH_TOOLS: dict[str, SlashTool] = {
         "Run extraction, mapping, output planning, evidence selection, and Markdown report generation.",
         "/generate_report [--no-llm] [--fresh] [--llm-input-chars N] [query...]",
         generate_report_command,
+    ),
+    "/summarize_file": SlashTool(
+        "/summarize_file",
+        "Summarize one supported file from the attached folder.",
+        "/summarize_file <path> [--no-llm] [--llm-input-chars N] [query...]",
+        summarize_file_command,
     ),
 }
 
