@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from threading import Lock
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -21,6 +22,7 @@ class FakeConsole:
         self.config = ConsoleConfig("/bin/echo", "/tmp/model.gguf", ctx_size=2048)
         self.prompts: list[str | ModelPrompt] = []
         self.stopped = False
+        self._lock = Lock()
 
     def start(self) -> None:
         self.stopped = False
@@ -32,18 +34,31 @@ class FakeConsole:
         self.stopped = True
 
     def ask(self, prompt: str | ModelPrompt) -> str:
-        self.prompts.append(prompt)
+        with self._lock:
+            self.prompts.append(prompt)
         for _ in range(20):
             if self.stopped:
                 self.stopped = False
                 raise ConsoleSessionError("Generation stopped.")
             time.sleep(0.005)
-        return "assistant answer"
+        if isinstance(prompt, ModelPrompt):
+            user_text = str(prompt.messages[-1]["content"])
+        else:
+            user_text = str(prompt)
+        return f"assistant answer: {user_text}"
 
 
 def process_events(app: QApplication, cycles: int = 80) -> None:
     for _ in range(cycles):
         app.processEvents()
+        time.sleep(0.005)
+
+
+def process_until_idle(app: QApplication, window: MainWindow, cycles: int = 120) -> None:
+    for _ in range(cycles):
+        app.processEvents()
+        if not window._active_generations:
+            return
         time.sleep(0.005)
 
 
@@ -80,6 +95,71 @@ class GuiFlowTests(unittest.TestCase):
         self.assertEqual(prompt.messages[-1], {"role": "user", "content": "second"})
         self.assertIn("<start_of_turn>user\nsecond<end_of_turn>", prompt.completion_prompt)
         self.assertTrue(prompt.completion_prompt.endswith("<start_of_turn>model"))
+
+        window.close()
+        process_events(self.app, 5)
+
+    def test_generation_finishes_in_original_session_after_switch(self) -> None:
+        console = FakeConsole()
+        db_path = Path(tempfile.mkdtemp()) / "app.db"
+        repository = ChatRepository(str(db_path))
+        first_session_id = repository.create_session("First")
+        second_session_id = repository.create_session("Second")
+        window = MainWindow(
+            console,
+            repository,
+            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
+        )
+
+        window.current_session_id = first_session_id
+        window._load_session_messages(first_session_id)
+        window.input_edit.setPlainText("first prompt")
+        window.on_send()
+        process_events(self.app, 5)
+
+        window.current_session_id = second_session_id
+        window._load_session_messages(second_session_id)
+        process_until_idle(self.app, window)
+
+        first_messages = repository.get_messages(first_session_id)
+        second_messages = repository.get_messages(second_session_id)
+        self.assertEqual(first_messages[-1]["role"], "assistant")
+        self.assertEqual(first_messages[-1]["content"], "assistant answer: first prompt")
+        self.assertFalse(any(message["role"] == "assistant" for message in second_messages))
+        self.assertNotIn("assistant answer: first prompt", window.chat_view.toPlainText())
+
+        window.close()
+        process_events(self.app, 5)
+
+    def test_two_sessions_can_generate_at_once(self) -> None:
+        console = FakeConsole()
+        db_path = Path(tempfile.mkdtemp()) / "app.db"
+        repository = ChatRepository(str(db_path))
+        first_session_id = repository.create_session("First")
+        second_session_id = repository.create_session("Second")
+        window = MainWindow(
+            console,
+            repository,
+            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
+        )
+
+        window.current_session_id = first_session_id
+        window._load_session_messages(first_session_id)
+        window.input_edit.setPlainText("first prompt")
+        window.on_send()
+        process_events(self.app, 5)
+
+        window.current_session_id = second_session_id
+        window._load_session_messages(second_session_id)
+        window.input_edit.setPlainText("second prompt")
+        window.on_send()
+        process_until_idle(self.app, window)
+
+        first_messages = repository.get_messages(first_session_id)
+        second_messages = repository.get_messages(second_session_id)
+        self.assertEqual(first_messages[-1]["content"], "assistant answer: first prompt")
+        self.assertEqual(second_messages[-1]["content"], "assistant answer: second prompt")
+        self.assertTrue(window.send_btn.isEnabled())
 
         window.close()
         process_events(self.app, 5)

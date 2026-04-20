@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shlex
 import traceback
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Protocol
 
@@ -44,7 +45,13 @@ from .attachment_handler import (
     validate_attachment_path,
 )
 from .config import AppConfig, save_connection_settings
-from .console_session import ConsoleConfig, ConsoleSessionError
+from .console_session import (
+    ConsoleConfig,
+    ConsoleSessionError,
+    LlamaConsoleSession,
+    LlamaServerSession,
+    OpenAICompatibleSession,
+)
 from .database import ChatRepository
 from .llm_client import ChatStreamChunk, OpenAIConnectionSettings
 from .markdown_export import format_chat_markdown, safe_markdown_filename
@@ -125,6 +132,17 @@ class ChatWorker(QObject):
             self.error.emit('Unexpected internal error while generating a response.')
 
 
+@dataclass
+class ActiveGeneration:
+    session_id: int
+    thread: QThread
+    worker: ChatWorker
+    console: ChatSession
+    stop_requested: bool = False
+    was_streamed: bool = False
+    partial_answer: list[str] = field(default_factory=list)
+
+
 class ConnectionTestWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
@@ -151,11 +169,9 @@ class MainWindow(QMainWindow):
         self.repository = repository
         self.app_config = app_config
         self.current_session_id: int | None = None
-        self._worker_thread: QThread | None = None
-        self._worker: ChatWorker | None = None
+        self._active_generations: dict[int, ActiveGeneration] = {}
         self._connection_test_thread: QThread | None = None
         self._connection_test_worker: ConnectionTestWorker | None = None
-        self._generation_stop_requested = False
         self._streaming_assistant_started = False
         self._streaming_block_start: int | None = None
         self._reasoning_placeholder_start: int | None = None
@@ -289,13 +305,15 @@ class MainWindow(QMainWindow):
         self.send_shortcut.activated.connect(self.on_send)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        if self._worker_thread is not None and self._worker_thread.isRunning():
-            self._generation_stop_requested = True
-            self.console.stop_generation()
-            self._worker_thread.quit()
-            self._worker_thread.wait(3000)
-            if self._worker_thread.isRunning():
-                self._set_status('Please wait for the current response to finish before closing.')
+        for generation in list(self._active_generations.values()):
+            generation.stop_requested = True
+            generation.console.stop_generation()
+
+        for generation in list(self._active_generations.values()):
+            generation.thread.quit()
+            generation.thread.wait(3000)
+            if generation.thread.isRunning():
+                self._set_status('Please wait for active responses to finish before closing.')
                 event.ignore()
                 return
 
@@ -349,6 +367,37 @@ class MainWindow(QMainWindow):
             self.console.update_connection_settings(settings)
         return settings
 
+    def _console_config_from_settings(self, settings: OpenAIConnectionSettings) -> ConsoleConfig:
+        return ConsoleConfig(
+            llama_cli_path=self.app_config.llama_cli_path,
+            model_path=self.app_config.model_path,
+            backend=self.app_config.backend,
+            server_url=self.app_config.server_url or settings.base_url,
+            server_endpoint=getattr(self.app_config, "server_endpoint", "auto"),
+            n_predict=settings.max_tokens,
+            system_prompt=self.app_config.system_prompt,
+            threads=self.app_config.threads,
+            ctx_size=self.app_config.ctx_size,
+            extra_args=list(self.app_config.extra_args),
+            startup_timeout=self.app_config.startup_timeout,
+            response_timeout=settings.timeout,
+            openai_base_url=settings.base_url,
+            openai_api_key=settings.api_key,
+            openai_model=settings.model,
+            openai_embedding_model=settings.embedding_model,
+            temperature=settings.temperature,
+        )
+
+    def _create_generation_console(self, settings: OpenAIConnectionSettings) -> ChatSession:
+        config = self._console_config_from_settings(settings)
+        if isinstance(self.console, OpenAICompatibleSession) or self.app_config.backend == "openai":
+            return OpenAICompatibleSession(config)
+        if isinstance(self.console, LlamaServerSession) or self.app_config.backend == "server":
+            return LlamaServerSession(config)
+        if isinstance(self.console, LlamaConsoleSession):
+            return LlamaConsoleSession(config)
+        return self.console
+
     @Slot()
     def on_save_connection_settings(self) -> None:
         settings = self._apply_connection_settings()
@@ -363,8 +412,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_test_connection(self) -> None:
-        if self._worker_thread is not None and self._worker_thread.isRunning():
-            QMessageBox.information(self, 'Test Connection', 'Please wait for the current response to finish first.')
+        if self._active_generations:
+            QMessageBox.information(self, 'Test Connection', 'Please wait for active responses to finish first.')
             return
         if self._connection_test_thread is not None and self._connection_test_thread.isRunning():
             return
@@ -402,16 +451,21 @@ class MainWindow(QMainWindow):
             self._connection_test_thread.deleteLater()
         self._connection_test_worker = None
         self._connection_test_thread = None
-        self.test_connection_btn.setDisabled(False)
-        self.save_settings_btn.setDisabled(False)
+        self._refresh_controls()
 
     def _reload_sessions(self) -> None:
+        selected_session_id = self.current_session_id
         self.session_list.clear()
         sessions = self.repository.list_sessions()
         for session in sessions:
-            item = QListWidgetItem(session['title'])
+            title = session['title']
+            if session['id'] in self._active_generations:
+                title = f"{title} [running]"
+            item = QListWidgetItem(title)
             item.setData(Qt.UserRole, session['id'])
             self.session_list.addItem(item)
+        if selected_session_id is not None:
+            self._select_session_in_list(selected_session_id)
 
     def on_new_chat(self) -> None:
         self.current_session_id = self.repository.create_session(DEFAULT_SESSION_TITLE)
@@ -420,6 +474,7 @@ class MainWindow(QMainWindow):
         self.chat_view.clear()
         self._append_block('System', 'New chat started.')
         self._set_status('Idle')
+        self._refresh_controls()
 
     def _select_session_in_list(self, session_id: int) -> None:
         for i in range(self.session_list.count()):
@@ -524,6 +579,9 @@ class MainWindow(QMainWindow):
         display_user_text = normalized_user_text
         if not display_user_text:
             return
+        if self.current_session_id is not None and self.current_session_id in self._active_generations:
+            QMessageBox.information(self, 'Send', 'This session is already generating a response.')
+            return
 
         prompt_tool_result: PromptToolResult | None = None
         prompt_tool_name = ""
@@ -569,13 +627,18 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
 
         assert self.current_session_id is not None
-        prior_message_count = self.repository.count_messages(self.current_session_id)
+        target_session_id = self.current_session_id
+        if target_session_id in self._active_generations:
+            QMessageBox.information(self, 'Send', 'This session is already generating a response.')
+            return
+
+        prior_message_count = self.repository.count_messages(target_session_id)
         prior_messages = self.repository.get_recent_messages(
-            self.current_session_id,
+            target_session_id,
             self.app_config.recent_message_limit,
         )
         memory_context = build_memory_context(
-            summary=self.repository.get_session_summary(self.current_session_id),
+            summary=self.repository.get_session_summary(target_session_id),
             max_chars=self.app_config.memory_context_char_limit,
         )
         max_prompt_tokens = prompt_token_budget(
@@ -604,18 +667,18 @@ class MainWindow(QMainWindow):
             )
         if was_limited:
             self._append_block('System', 'Prompt context was shortened to fit the configured context limit.')
-        self.repository.add_message(self.current_session_id, 'user', display_user_text)
+        self.repository.add_message(target_session_id, 'user', display_user_text)
         if used_attachment_filenames:
             assert prompt_tool_result is not None
             title_text = prompt_tool_result.instruction or DEFAULT_ATTACHMENT_PROMPT
         else:
             title_text = display_user_text
-        self._set_new_session_title(self.current_session_id, title_text, used_attachment_filenames)
+        self._set_new_session_title(target_session_id, title_text, used_attachment_filenames)
         self._reload_sessions()
-        self._select_session_in_list(self.current_session_id)
-        self._generation_stop_requested = False
-        self._set_busy(True, 'Generating response...')
-        self._start_worker(model_prompt)
+        self._select_session_in_list(target_session_id)
+        self._set_status('Generating response...')
+        self._start_worker(target_session_id, model_prompt, settings)
+        self._refresh_controls()
 
     def _try_handle_tool_command(self, display_user_text: str) -> bool:
         settings = self._apply_connection_settings()
@@ -665,106 +728,147 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_stop_generation(self) -> None:
-        if self._worker_thread is None or not self._worker_thread.isRunning():
+        if self.current_session_id is None:
+            return
+        generation = self._active_generations.get(self.current_session_id)
+        if generation is None:
             return
 
-        self._generation_stop_requested = True
+        generation.stop_requested = True
+
         self.stop_btn.setDisabled(True)
         self._set_status('Stopping response...')
-        self.console.stop_generation()
+        generation.console.stop_generation()
 
-    def _start_worker(self, prompt_text: str | ModelPrompt) -> None:
-        self._streaming_assistant_started = False
-        self._worker_thread = QThread()
-        self._worker = ChatWorker(self.console, prompt_text)
-        self._worker.moveToThread(self._worker_thread)
-        self._worker_thread.started.connect(self._worker.run)
-        self._worker.chunk.connect(self._on_generation_chunk)
-        self._worker.finished.connect(self._on_generation_success)
-        self._worker.error.connect(self._on_generation_error)
-        self._worker.finished.connect(self._quit_worker_thread_after_success)
-        self._worker.error.connect(self._quit_worker_thread_after_error)
-        self._worker_thread.finished.connect(self._cleanup_worker)
-        self._worker_thread.start()
-
-    @Slot(str, bool)
-    def _quit_worker_thread_after_success(self, _answer: str, _was_streamed: bool) -> None:
-        if self._worker_thread is not None:
-            self._worker_thread.quit()
-
-    @Slot(str)
-    def _quit_worker_thread_after_error(self, _error_text: str) -> None:
-        if self._worker_thread is not None:
-            self._worker_thread.quit()
-
-    @Slot(str, str)
-    def _on_generation_chunk(self, kind: str, chunk: str) -> None:
-        if kind == 'reasoning':
-            self._show_reasoning_placeholder()
-            self._set_status('Reasoning...')
-            return
-        if kind != 'final' or not chunk:
-            return
-        self._clear_reasoning_placeholder()
-        if not self._streaming_assistant_started:
-            self._append_block_start('Assistant')
-            self._streaming_assistant_started = True
-        self._append_stream_text(chunk)
-        self._set_status('Generating response...')
-
-    @Slot(str, bool)
-    def _on_generation_success(self, answer: str, was_streamed: bool) -> None:
-        if self._generation_stop_requested:
-            self._clear_reasoning_placeholder()
-            self._finish_stream_block()
-            self._append_block('System', 'Generation stopped.')
-            self._generation_stop_requested = False
-            self._set_busy(False, 'Idle')
-            return
-
-        self._clear_reasoning_placeholder()
-        if not answer.strip():
-            self._append_block('System', 'Backend returned no final assistant answer.')
-            self._set_busy(False, 'Error')
-            return
-
-        if self.current_session_id is not None:
-            self.repository.add_message(self.current_session_id, 'assistant', answer)
-        if was_streamed or self._streaming_assistant_started:
-            self._replace_stream_block_with_markdown('Assistant', answer)
-        else:
-            self._append_block('Assistant', answer)
-        self._set_busy(False, 'Idle')
-        self._reload_sessions()
-        if self.current_session_id is not None:
-            self._select_session_in_list(self.current_session_id)
-
-    @Slot(str)
-    def _on_generation_error(self, error_text: str) -> None:
-        if self._generation_stop_requested:
-            self._clear_reasoning_placeholder()
-            self._finish_stream_block()
-            self._append_block('System', 'Generation stopped.')
-            self._generation_stop_requested = False
-            self._set_busy(False, 'Idle')
-            return
-
-        self._clear_reasoning_placeholder()
-        self._finish_stream_block()
-        self._append_block('System', f'Error: {error_text}')
-        self._set_busy(False, 'Error')
-
-    @Slot()
-    def _cleanup_worker(self) -> None:
-        if self._worker is not None:
-            self._worker.deleteLater()
-        if self._worker_thread is not None:
-            self._worker_thread.deleteLater()
-        self._worker = None
-        self._worker_thread = None
+    def _start_worker(
+        self,
+        session_id: int,
+        prompt_text: str | ModelPrompt,
+        settings: OpenAIConnectionSettings,
+    ) -> None:
         self._streaming_assistant_started = False
         self._streaming_block_start = None
         self._reasoning_placeholder_start = None
+        thread = QThread()
+        console = self._create_generation_console(settings)
+        worker = ChatWorker(console, prompt_text)
+        generation = ActiveGeneration(
+            session_id=session_id,
+            thread=thread,
+            worker=worker,
+            console=console,
+        )
+        self._active_generations[session_id] = generation
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.chunk.connect(lambda kind, chunk, sid=session_id: self._on_generation_chunk(sid, kind, chunk))
+        worker.finished.connect(
+            lambda answer, was_streamed, sid=session_id: self._on_generation_success(sid, answer, was_streamed)
+        )
+        worker.error.connect(lambda error_text, sid=session_id: self._on_generation_error(sid, error_text))
+        worker.finished.connect(lambda _answer, _was_streamed, sid=session_id: self._quit_worker_thread(sid))
+        worker.error.connect(lambda _error_text, sid=session_id: self._quit_worker_thread(sid))
+        thread.finished.connect(lambda sid=session_id: self._cleanup_worker(sid))
+        thread.start()
+        self._reload_sessions()
+
+    def _quit_worker_thread(self, session_id: int) -> None:
+        generation = self._active_generations.get(session_id)
+        if generation is not None:
+            generation.thread.quit()
+
+    def _on_generation_chunk(self, session_id: int, kind: str, chunk: str) -> None:
+        generation = self._active_generations.get(session_id)
+        if generation is None:
+            return
+        if kind == 'reasoning':
+            if self.current_session_id == session_id:
+                self._show_reasoning_placeholder()
+                self._set_status('Reasoning...')
+            return
+        if kind != 'final' or not chunk:
+            return
+        generation.was_streamed = True
+        generation.partial_answer.append(chunk)
+        if self.current_session_id == session_id:
+            self._clear_reasoning_placeholder()
+            if not self._streaming_assistant_started:
+                self._append_block_start('Assistant')
+                self._streaming_assistant_started = True
+            self._append_stream_text(chunk)
+            self._set_status('Generating response...')
+
+    def _on_generation_success(self, session_id: int, answer: str, was_streamed: bool) -> None:
+        generation = self._active_generations.get(session_id)
+        if generation is None:
+            return
+
+        is_visible = self.current_session_id == session_id
+        if generation.stop_requested:
+            if is_visible:
+                self._clear_reasoning_placeholder()
+                self._finish_stream_block()
+                self._append_block('System', 'Generation stopped.')
+            self._set_status('Idle')
+            self._refresh_controls()
+            return
+
+        if is_visible:
+            self._clear_reasoning_placeholder()
+        if not answer.strip():
+            if is_visible:
+                self._append_block('System', 'Backend returned no final assistant answer.')
+            self._set_status('Error')
+            self._refresh_controls()
+            return
+
+        self.repository.add_message(session_id, 'assistant', answer)
+        if is_visible:
+            if was_streamed or self._streaming_assistant_started:
+                self._replace_stream_block_with_markdown('Assistant', answer)
+            else:
+                self._append_block('Assistant', answer)
+            self._set_status('Idle')
+        else:
+            self._set_status('Response finished')
+        self._reload_sessions()
+        self._refresh_controls()
+
+    def _on_generation_error(self, session_id: int, error_text: str) -> None:
+        generation = self._active_generations.get(session_id)
+        if generation is None:
+            return
+
+        is_visible = self.current_session_id == session_id
+        if generation.stop_requested:
+            if is_visible:
+                self._clear_reasoning_placeholder()
+                self._finish_stream_block()
+                self._append_block('System', 'Generation stopped.')
+            self._set_status('Idle')
+            self._refresh_controls()
+            return
+
+        if is_visible:
+            self._clear_reasoning_placeholder()
+            self._finish_stream_block()
+            self._append_block('System', f'Error: {error_text}')
+        self._set_status('Error')
+        self._refresh_controls()
+
+    def _cleanup_worker(self, session_id: int) -> None:
+        generation = self._active_generations.pop(session_id, None)
+        if generation is not None:
+            generation.worker.deleteLater()
+            generation.thread.deleteLater()
+            if generation.console is not self.console:
+                generation.console.stop()
+        if self.current_session_id == session_id:
+            self._streaming_assistant_started = False
+            self._streaming_block_start = None
+            self._reasoning_placeholder_start = None
+        self._reload_sessions()
+        self._refresh_controls()
 
     def _set_new_session_title(
         self,
@@ -779,18 +883,26 @@ class MainWindow(QMainWindow):
         if title != DEFAULT_SESSION_TITLE:
             self.repository.update_session_title(session_id, title)
 
-    def _set_busy(self, busy: bool, status_text: str) -> None:
-        self.send_btn.setDisabled(busy)
-        self.stop_btn.setDisabled(not busy)
-        self.new_chat_btn.setDisabled(busy)
-        self.session_list.setDisabled(busy)
-        self.test_connection_btn.setDisabled(busy)
-        self.save_settings_btn.setDisabled(busy)
-        self.attach_file_btn.setDisabled(busy)
-        self.copy_last_output_btn.setDisabled(busy)
-        self.save_chat_btn.setDisabled(busy)
-        self.clear_attachments_btn.setDisabled(busy or not self._attached_file_paths)
-        self._set_status(status_text)
+    def _refresh_controls(self) -> None:
+        current_generating = (
+            self.current_session_id is not None
+            and self.current_session_id in self._active_generations
+        )
+        has_active_generation = bool(self._active_generations)
+        testing_connection = (
+            self._connection_test_thread is not None
+            and self._connection_test_thread.isRunning()
+        )
+        self.send_btn.setDisabled(current_generating or testing_connection)
+        self.stop_btn.setDisabled(not current_generating)
+        self.new_chat_btn.setDisabled(testing_connection)
+        self.session_list.setDisabled(False)
+        self.test_connection_btn.setDisabled(has_active_generation or testing_connection)
+        self.save_settings_btn.setDisabled(testing_connection)
+        self.attach_file_btn.setDisabled(testing_connection)
+        self.copy_last_output_btn.setDisabled(testing_connection)
+        self.save_chat_btn.setDisabled(testing_connection)
+        self.clear_attachments_btn.setDisabled(testing_connection or not self._attached_file_paths)
 
     @Slot(QListWidgetItem)
     def _on_attachment_double_clicked(self, item: QListWidgetItem) -> None:
@@ -812,15 +924,31 @@ class MainWindow(QMainWindow):
             return
         self.current_session_id = int(session_id)
         self._load_session_messages(self.current_session_id)
+        self._refresh_controls()
 
     def _load_session_messages(self, session_id: int) -> None:
         self.chat_view.clear()
+        self._streaming_assistant_started = False
+        self._streaming_block_start = None
+        self._reasoning_placeholder_start = None
         messages = self.repository.get_messages(session_id)
         if not messages:
             self._append_block('System', 'New chat started.')
-            return
-        for message in messages:
-            self._append_block(self._display_label_for_role(message['role']), message['content'])
+        else:
+            for message in messages:
+                self._append_block(self._display_label_for_role(message['role']), message['content'])
+        generation = self._active_generations.get(session_id)
+        if generation is not None:
+            partial_answer = ''.join(generation.partial_answer)
+            if partial_answer:
+                self._append_block_start('Assistant')
+                self._streaming_assistant_started = True
+                self._append_stream_text(partial_answer)
+            else:
+                self._show_reasoning_placeholder()
+            self._set_status('Generating response...')
+        else:
+            self._set_status('Idle')
         cursor = self.chat_view.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.chat_view.setTextCursor(cursor)
@@ -873,8 +1001,7 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f'{self._attachment_display_name(path)} ({file_type})')
             item.setToolTip(path)
             self.attachment_list.addItem(item)
-        has_attachments = bool(self._attached_file_paths)
-        self.clear_attachments_btn.setDisabled(not has_attachments)
+        self._refresh_controls()
 
     def _clear_attached_files(self) -> None:
         self._attached_file_paths.clear()
@@ -984,6 +1111,10 @@ class MainWindow(QMainWindow):
         session_id = current_item.data(Qt.UserRole)
         if session_id is None:
             return
+        session_id = int(session_id)
+        if session_id in self._active_generations:
+            QMessageBox.information(self, 'Delete Session', 'Stop this session before deleting it.')
+            return
 
         reply = QMessageBox.question(
             self,
@@ -995,14 +1126,15 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
 
-        self.repository.delete_session(int(session_id))
+        self.repository.delete_session(session_id)
 
-        if self.current_session_id == int(session_id):
+        if self.current_session_id == session_id:
             self.current_session_id = None
             self.chat_view.clear()
             self._append_block('System', 'Select a session or click New Chat.')
 
         self._reload_sessions()
+        self._refresh_controls()
         self._set_status('Session deleted')
 
 class ChatGUI:
