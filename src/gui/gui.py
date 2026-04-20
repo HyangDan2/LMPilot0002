@@ -653,9 +653,9 @@ class MainWindow(QMainWindow):
             self.on_new_chat()
         assert self.current_session_id is not None
         self._append_block('You', display_user_text)
-        self._append_block('Tool', result)
+        self._append_block('Tool', result.text)
         self.repository.add_message(self.current_session_id, 'user', display_user_text)
-        self.repository.add_message(self.current_session_id, 'tool', result)
+        self.repository.add_message(self.current_session_id, 'tool', result.history_text)
         if self.repository.get_session_title(self.current_session_id) == DEFAULT_SESSION_TITLE:
             self._set_new_session_title(self.current_session_id, display_user_text)
         self._set_status('Tool complete')

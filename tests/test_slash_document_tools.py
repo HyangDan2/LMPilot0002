@@ -12,8 +12,10 @@ class SlashDocumentToolsTests(unittest.TestCase):
         result = run_slash_command("/help", None, SlashToolContext())
 
         assert result is not None
-        self.assertIn("/extract_docs", result)
-        self.assertIn("llm_result/document_pipeline/extracted_documents.json", result)
+        self.assertIn("/extract_docs", result.text)
+        self.assertIn("/workspace_status", result.text)
+        self.assertIn("/generate_markdown", result.text)
+        self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
 
     def test_non_slash_prompt_is_not_handled(self) -> None:
         self.assertIsNone(run_slash_command("hello", None, SlashToolContext()))
@@ -22,8 +24,8 @@ class SlashDocumentToolsTests(unittest.TestCase):
         result = run_slash_command("/missing", None, SlashToolContext())
 
         assert result is not None
-        self.assertIn("unknown slash command", result)
-        self.assertIn("/help", result)
+        self.assertIn("unknown slash command", result.text)
+        self.assertIn("/help", result.text)
 
     def test_path_traversal_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -31,7 +33,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
             result = run_slash_command("/read_file_info ../secret.txt", root, SlashToolContext())
 
         assert result is not None
-        self.assertIn("outside the attached working folder", result)
+        self.assertIn("outside the attached working folder", result.text)
 
     def test_detect_file_type_and_read_file_info_use_attached_folder(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -45,8 +47,8 @@ class SlashDocumentToolsTests(unittest.TestCase):
 
         assert detected is not None
         assert info is not None
-        self.assertIn("family: pptx", detected)
-        self.assertIn("size_bytes: 6", info)
+        self.assertIn("family: pptx", detected.text)
+        self.assertIn("size_bytes: 6", info.text)
 
     def test_extract_docs_auto_saves_empty_folder_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -62,7 +64,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
             self.assertEqual(json.loads(extracted_path.read_text(encoding="utf-8")), {"documents": []})
 
         assert result is not None
-        self.assertIn("Extracted 0 document(s)", result)
+        self.assertIn("Extracted 0 document(s)", result.text)
 
     def test_build_doc_map_and_chunk_sections_auto_save_from_context(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -77,8 +79,35 @@ class SlashDocumentToolsTests(unittest.TestCase):
 
         assert doc_map_result is not None
         assert chunks_result is not None
-        self.assertIn("Built document map", doc_map_result)
-        self.assertIn("Built retrieval chunks", chunks_result)
+        self.assertIn("Built document map", doc_map_result.text)
+        self.assertIn("Built retrieval chunks", chunks_result.text)
+
+    def test_workspace_status_reports_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context = SlashToolContext()
+            run_slash_command("/extract_docs", root, context)
+
+            result = run_slash_command("/workspace_status", root, context)
+
+        assert result is not None
+        self.assertIn("Workspace status", result.text)
+        self.assertIn("extracted_documents.json: found", result.text)
+
+    def test_generate_markdown_auto_saves_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context = SlashToolContext(working_folder=root, documents=[_sample_document(root)])
+
+            result = run_slash_command("/generate_markdown", root, context)
+
+            report_path = root / "llm_result" / "document_pipeline" / "generated_report.md"
+            self.assertTrue(report_path.exists())
+            self.assertIn("# Generated Document Report", report_path.read_text(encoding="utf-8"))
+
+        assert result is not None
+        self.assertIn("Generated markdown report", result.text)
+        self.assertIn("generated_report.md", result.text)
 
 
 def _sample_document(root: Path) -> ExtractedDocument:

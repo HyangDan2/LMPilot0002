@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .results import SlashToolResult
+
 
 HELP_TEXT = """LLM Workspace Help
 
@@ -29,6 +31,12 @@ Build a structural document map from the latest /extract_docs result. If needed,
 /chunk_sections [--max-chars N]
 Build retrieval chunks from the latest /extract_docs result. If needed, it loads saved extracted_documents.json.
 
+/workspace_status
+Show which document-pipeline artifacts are available in the attached folder.
+
+/generate_markdown
+Generate a deterministic markdown report from extracted evidence.
+
 Supported file types:
 .pptx, .docx, .xlsx, .pdf
 
@@ -37,6 +45,8 @@ Suggested flow:
 2. Run /extract_docs.
 3. Run /build_doc_map.
 4. Run /chunk_sections.
+5. Run /generate_markdown.
+6. Run /workspace_status.
 
 Automatic saved outputs:
 - /extract_docs saves llm_result/document_pipeline/extracted_documents.json
@@ -44,16 +54,19 @@ Automatic saved outputs:
 - /extract_single_doc saves llm_result/document_pipeline/documents/DOCUMENT_ID.json
 - /build_doc_map saves llm_result/document_pipeline/document_map.json
 - /chunk_sections saves llm_result/document_pipeline/chunks.json
+- /generate_markdown saves llm_result/document_pipeline/generated_report.md
 
 Not included yet:
 - summarize_map
 - integrated_result
-- report generation
+- LLM-based report generation
 - automatic LLM orchestration
 """
 
 
-def help_command(args, working_folder, context) -> str:
-    if args:
-        return HELP_TEXT
-    return HELP_TEXT
+def help_command(args, working_folder, context) -> SlashToolResult:
+    return SlashToolResult(
+        text=HELP_TEXT,
+        tool_name="/help",
+        next_actions=["/extract_docs", "/workspace_status"],
+    )

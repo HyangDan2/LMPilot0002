@@ -37,6 +37,13 @@ def save_chunks(working_folder: Path, chunks: list[EvidenceChunk]) -> Path:
     return path
 
 
+def save_generated_markdown(working_folder: Path, markdown: str) -> Path:
+    path = pipeline_output_dir(working_folder) / "generated_report.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(markdown, encoding="utf-8")
+    return path
+
+
 def save_manifest(working_folder: Path, documents: list[ExtractedDocument]) -> Path:
     path = pipeline_output_dir(working_folder) / "extraction_manifest.json"
     payload = {
@@ -67,8 +74,31 @@ def load_extracted_documents_payload(working_folder: Path) -> dict[str, Any]:
     return payload
 
 
+def load_document_map_payload(working_folder: Path) -> dict[str, Any]:
+    path = pipeline_output_dir(working_folder) / "document_map.json"
+    return _read_json_object(path, "document_map.json")
+
+
+def load_chunks_payload(working_folder: Path) -> dict[str, Any]:
+    path = pipeline_output_dir(working_folder) / "chunks.json"
+    return _read_json_object(path, "chunks.json")
+
+
+def load_manifest_payload(working_folder: Path) -> dict[str, Any]:
+    path = pipeline_output_dir(working_folder) / "extraction_manifest.json"
+    return _read_json_object(path, "extraction_manifest.json")
+
+
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
         f.write("\n")
+
+
+def _read_json_object(path: Path, label: str) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must contain a JSON object.")
+    return payload

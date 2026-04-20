@@ -12,14 +12,17 @@ from .document_pipeline import (
     detect_file_type_command,
     extract_docs_command,
     extract_single_doc_command,
+    generate_markdown_command,
     normalize_text_command,
     read_file_info_command,
+    workspace_status_command,
 )
 from .errors import SlashToolError
 from .help import help_command
+from .results import SlashToolResult, error_result
 
 
-SlashHandler = Callable[[list[str], str | Path | None, SlashToolContext], str]
+SlashHandler = Callable[[list[str], str | Path | None, SlashToolContext], SlashToolResult]
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,18 @@ SLASH_TOOLS: dict[str, SlashTool] = {
         "/chunk_sections [--max-chars N]",
         chunk_sections_command,
     ),
+    "/workspace_status": SlashTool(
+        "/workspace_status",
+        "Show which document-pipeline artifacts are available.",
+        "/workspace_status",
+        workspace_status_command,
+    ),
+    "/generate_markdown": SlashTool(
+        "/generate_markdown",
+        "Generate and auto-save a deterministic markdown evidence report.",
+        "/generate_markdown",
+        generate_markdown_command,
+    ),
 }
 
 
@@ -81,23 +96,27 @@ def run_slash_command(
     command_text: str,
     working_folder: str | Path | None,
     context: SlashToolContext,
-) -> str | None:
+) -> SlashToolResult | None:
     stripped = command_text.strip()
     if not stripped.startswith("/"):
         return None
     try:
         parts = shlex.split(stripped)
     except ValueError as exc:
-        return f"Tool error: malformed slash command: {exc}"
+        return error_result(f"malformed slash command: {exc}")
     if not parts:
         return None
     command = parts[0].lower()
     tool = SLASH_TOOLS.get(command)
     if tool is None:
-        return f"Tool error: unknown slash command '{command}'. Run /help to see available commands."
+        return error_result(f"unknown slash command '{command}'. Run /help to see available commands.", command)
     try:
-        return tool.handler(parts[1:], working_folder, context)
+        result = tool.handler(parts[1:], working_folder, context)
+        context.last_tool_name = result.tool_name
+        context.last_tool_summary = result.history_text
+        context.saved_files = list(result.saved_files)
+        return result
     except SlashToolError as exc:
-        return f"Tool error: {exc}"
+        return error_result(str(exc), command)
     except Exception as exc:
-        return f"Tool error: unexpected failure while running {command}: {exc}"
+        return error_result(f"unexpected failure while running {command}: {exc}", command)
