@@ -156,3 +156,38 @@ class DocumentMap:
 
     def to_dict(self) -> dict[str, Any]:
         return {"documents": list(self.documents), "blocks": list(self.blocks)}
+
+
+@dataclass(frozen=True)
+class OutputPlanSection:
+    """One planned section for a generated report."""
+
+    section_id: str
+    title: str
+    purpose: str
+    source_chunk_ids: list[str] = field(default_factory=list)
+    source_block_ids: list[str] = field(default_factory=list)
+    max_chars: int = 1200
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class OutputPlan:
+    """Grounded plan used before writing a final report."""
+
+    schema_version: str
+    title: str
+    goal: str
+    sections: list[OutputPlanSection]
+    source_document_ids: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "title": self.title,
+            "goal": self.goal,
+            "sections": [section.to_dict() for section in self.sections],
+            "source_document_ids": list(self.source_document_ids),
+        }

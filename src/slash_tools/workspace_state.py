@@ -14,6 +14,7 @@ class WorkspaceState:
     extraction_manifest_path: str | None = None
     document_map_path: str | None = None
     chunks_path: str | None = None
+    output_plan_path: str | None = None
     generated_markdown_path: str | None = None
     document_count: int = 0
     chunk_count: int = 0
@@ -31,6 +32,7 @@ class WorkspaceState:
             f"- extraction_manifest.json: {_found(self.extraction_manifest_path)}",
             f"- document_map.json: {_found(self.document_map_path)}",
             f"- chunks.json: {_found(self.chunks_path, self.chunk_count, 'chunk(s)')}",
+            f"- output_plan.json: {_found(self.output_plan_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
         ]
         if self.next_actions:
@@ -46,6 +48,7 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     manifest_path = output_dir / "extraction_manifest.json"
     doc_map_path = output_dir / "document_map.json"
     chunks_path = output_dir / "chunks.json"
+    output_plan_path = output_dir / "output_plan.json"
     report_path = output_dir / "generated_report.md"
     document_count = _document_count(extracted_path)
     chunk_count = _chunk_count(chunks_path)
@@ -53,6 +56,7 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         has_documents=extracted_path.exists() and document_count > 0,
         has_map=doc_map_path.exists(),
         has_chunks=chunks_path.exists(),
+        has_output_plan=output_plan_path.exists(),
         has_report=report_path.exists(),
     )
     return WorkspaceState(
@@ -61,6 +65,7 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         extraction_manifest_path=_path_if_exists(manifest_path, root),
         document_map_path=_path_if_exists(doc_map_path, root),
         chunks_path=_path_if_exists(chunks_path, root),
+        output_plan_path=_path_if_exists(output_plan_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
         document_count=document_count,
         chunk_count=chunk_count,
@@ -99,15 +104,21 @@ def _chunk_count(path: Path) -> int:
     return len(chunks) if isinstance(chunks, list) else 0
 
 
-def _next_actions(has_documents: bool, has_map: bool, has_chunks: bool, has_report: bool) -> list[str]:
+def _next_actions(
+    has_documents: bool,
+    has_map: bool,
+    has_chunks: bool,
+    has_output_plan: bool,
+    has_report: bool,
+) -> list[str]:
     if not has_documents:
-        return ["/extract_docs"]
+        return ["/generate_report", "/extract_docs"]
     if not has_map:
-        return ["/build_doc_map"]
+        return ["/generate_report", "/build_doc_map"]
     if not has_chunks:
-        return ["/chunk_sections"]
-    if not has_report:
-        return ["/generate_markdown"]
+        return ["/generate_report", "/chunk_sections"]
+    if not has_output_plan or not has_report:
+        return ["/generate_report"]
     return ["Ask a normal question about the generated report", "Re-run /extract_docs if source files changed"]
 
 

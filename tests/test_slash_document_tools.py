@@ -15,6 +15,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/extract_docs", result.text)
         self.assertIn("/workspace_status", result.text)
         self.assertIn("/generate_markdown", result.text)
+        self.assertIn("/generate_report", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
 
     def test_non_slash_prompt_is_not_handled(self) -> None:
@@ -107,6 +108,24 @@ class SlashDocumentToolsTests(unittest.TestCase):
 
         assert result is not None
         self.assertIn("Generated markdown report", result.text)
+        self.assertIn("generated_report.md", result.text)
+
+    def test_generate_report_auto_saves_plan_and_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context = SlashToolContext()
+
+            result = run_slash_command('/generate_report --goal "Demo summary"', root, context)
+
+            plan_path = root / "llm_result" / "document_pipeline" / "output_plan.json"
+            report_path = root / "llm_result" / "document_pipeline" / "generated_report.md"
+            self.assertTrue(plan_path.exists())
+            self.assertTrue(report_path.exists())
+            self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["goal"], "Demo summary")
+
+        assert result is not None
+        self.assertIn("Generated report", result.text)
+        self.assertIn("output_plan.json", result.text)
         self.assertIn("generated_report.md", result.text)
 
 

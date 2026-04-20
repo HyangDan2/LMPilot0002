@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.document_pipeline.high_level import generate_markdown_report
+from src.document_pipeline.high_level import generate_markdown_report, generate_report_pipeline
 from src.document_pipeline.low_level import detect_file_type, normalize_text, read_file_bytes
 from src.document_pipeline.mid_level import ExtractionContext, build_doc_map, chunk_sections
 from src.document_pipeline.mid_level import extract_docs as extract_docs_mid_level
@@ -129,7 +129,7 @@ def extract_docs_command(args: list[str], working_folder: str | Path | None, con
         "/extract_docs",
         "\n".join(lines),
         saved_files=saved_files,
-        next_actions=["/build_doc_map", "/chunk_sections", "/generate_markdown", "/workspace_status"],
+        next_actions=["/build_doc_map", "/chunk_sections", "/generate_report", "/workspace_status"],
     )
 
 
@@ -154,7 +154,7 @@ def build_doc_map_command(
             ]
         ),
         saved_files=[_relative_to_root(saved_path, root)],
-        next_actions=["/chunk_sections", "/generate_markdown", "/workspace_status"],
+        next_actions=["/chunk_sections", "/generate_report", "/workspace_status"],
     )
 
 
@@ -178,7 +178,7 @@ def chunk_sections_command(
             ]
         ),
         saved_files=[_relative_to_root(saved_path, root)],
-        next_actions=["/generate_markdown", "/workspace_status"],
+        next_actions=["/generate_report", "/workspace_status"],
     )
 
 
@@ -226,6 +226,35 @@ def generate_markdown_command(
     )
 
 
+def generate_report_command(
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext
+) -> SlashToolResult:
+    root = require_working_folder(working_folder)
+    goal, max_chars = _parse_generate_report_args(args)
+    context.reset_for_folder(root) if context.working_folder != root else None
+    result = generate_report_pipeline(root, goal=goal, max_chunk_chars=max_chars)
+    context.documents = result.documents
+    context.doc_map = result.doc_map
+    context.chunks = result.chunks
+    saved_files = [_relative_to_root(path, root) for path in result.saved_files]
+    return _result(
+        "/generate_report",
+        "\n".join(
+            [
+                "Generated report.",
+                "",
+                f"- documents: {len(result.documents)}",
+                f"- chunks: {len(result.chunks)}",
+                f"- plan_sections: {len(result.output_plan.sections)}",
+                f"- max_chunk_chars: {max_chars}",
+                f"- goal: {result.output_plan.goal}",
+            ]
+        ),
+        saved_files=saved_files,
+        next_actions=["/workspace_status", "Ask a normal question about the generated report"],
+    )
+
+
 def _ensure_documents(root: Path, context: SlashToolContext) -> None:
     if context.working_folder != root:
         context.reset_for_folder(root)
@@ -251,6 +280,32 @@ def _parse_max_chars(args: list[str]) -> int:
     if value < 200:
         raise SlashToolError("--max-chars must be at least 200.")
     return value
+
+
+def _parse_generate_report_args(args: list[str]) -> tuple[str, int]:
+    goal = "Generate a grounded markdown report from the attached workspace documents."
+    max_chars = 2400
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--max-chars":
+            if index + 1 >= len(args):
+                raise SlashToolError("Usage: /generate_report [--max-chars N] [--goal TEXT]")
+            try:
+                max_chars = int(args[index + 1])
+            except ValueError as exc:
+                raise SlashToolError("--max-chars must be an integer.") from exc
+            if max_chars < 200:
+                raise SlashToolError("--max-chars must be at least 200.")
+            index += 2
+        elif token == "--goal":
+            if index + 1 >= len(args):
+                raise SlashToolError("Usage: /generate_report [--max-chars N] [--goal TEXT]")
+            goal = " ".join(args[index + 1 :]).strip()
+            break
+        else:
+            raise SlashToolError("Usage: /generate_report [--max-chars N] [--goal TEXT]")
+    return goal, max_chars
 
 
 def _document_summary(document, root: Path) -> str:

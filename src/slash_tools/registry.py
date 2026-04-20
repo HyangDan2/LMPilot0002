@@ -13,6 +13,7 @@ from .document_pipeline import (
     extract_docs_command,
     extract_single_doc_command,
     generate_markdown_command,
+    generate_report_command,
     normalize_text_command,
     read_file_info_command,
     workspace_status_command,
@@ -88,6 +89,12 @@ SLASH_TOOLS: dict[str, SlashTool] = {
         "Generate and auto-save a deterministic markdown evidence report.",
         "/generate_markdown",
         generate_markdown_command,
+    ),
+    "/generate_report": SlashTool(
+        "/generate_report",
+        "Run extraction, mapping, chunking, internal output planning, and report generation.",
+        "/generate_report [--max-chars N] [--goal TEXT]",
+        generate_report_command,
     ),
 }
 

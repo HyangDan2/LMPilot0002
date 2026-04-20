@@ -5,6 +5,8 @@ from .models import (
     EvidenceChunk,
     ExtractedBlock,
     ExtractedDocument,
+    OutputPlan,
+    OutputPlanSection,
     Provenance,
     SourceInfo,
 )
@@ -16,6 +18,8 @@ __all__ = [
     "EvidenceChunk",
     "ExtractedBlock",
     "ExtractedDocument",
+    "OutputPlan",
+    "OutputPlanSection",
     "Provenance",
     "SourceInfo",
 ]

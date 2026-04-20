@@ -37,16 +37,22 @@ Show which document-pipeline artifacts are available in the attached folder.
 /generate_markdown
 Generate a deterministic markdown report from extracted evidence.
 
+/generate_report [--max-chars N] [--goal TEXT]
+Run extraction, mapping, chunking, internal output planning, and markdown report generation in one step.
+
 Supported file types:
 .pptx, .docx, .xlsx, .pdf
 
 Suggested flow:
 1. Attach a folder.
-2. Run /extract_docs.
-3. Run /build_doc_map.
-4. Run /chunk_sections.
-5. Run /generate_markdown.
-6. Run /workspace_status.
+2. Run /generate_report.
+3. Run /workspace_status.
+
+Advanced evidence flow:
+1. Run /extract_docs.
+2. Run /build_doc_map.
+3. Run /chunk_sections.
+4. Run /generate_markdown.
 
 Automatic saved outputs:
 - /extract_docs saves llm_result/document_pipeline/extracted_documents.json
@@ -54,13 +60,14 @@ Automatic saved outputs:
 - /extract_single_doc saves llm_result/document_pipeline/documents/DOCUMENT_ID.json
 - /build_doc_map saves llm_result/document_pipeline/document_map.json
 - /chunk_sections saves llm_result/document_pipeline/chunks.json
+- /generate_report saves llm_result/document_pipeline/output_plan.json
 - /generate_markdown saves llm_result/document_pipeline/generated_report.md
+- /generate_report saves llm_result/document_pipeline/generated_report.md
 
 Not included yet:
 - summarize_map
 - integrated_result
-- LLM-based report generation
-- automatic LLM orchestration
+- LLM-based final report writing
 """
 
 
