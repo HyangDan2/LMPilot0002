@@ -101,12 +101,14 @@ class ChatSession(Protocol):
 
 
 class ChatWorker(QObject):
-    chunk = Signal(str, str)
-    finished = Signal(str, bool)
-    error = Signal(str)
+    chunk = Signal(int, str, str)
+    finished = Signal(int, str, bool)
+    error = Signal(int, str)
+    done = Signal(int)
 
-    def __init__(self, console: ChatSession, prompt_text: str | ModelPrompt) -> None:
+    def __init__(self, session_id: int, console: ChatSession, prompt_text: str | ModelPrompt) -> None:
         super().__init__()
+        self.session_id = session_id
         self.console = console
         self.prompt_text = prompt_text
 
@@ -119,17 +121,19 @@ class ChatWorker(QObject):
                 for chunk in stream_answer(self.prompt_text):
                     if chunk.kind == 'final':
                         answer_parts.append(chunk.text)
-                    self.chunk.emit(chunk.kind, chunk.text)
-                self.finished.emit(''.join(answer_parts), True)
+                    self.chunk.emit(self.session_id, chunk.kind, chunk.text)
+                self.finished.emit(self.session_id, ''.join(answer_parts), True)
                 return
 
             answer = self.console.ask(self.prompt_text)
-            self.finished.emit(answer, False)
+            self.finished.emit(self.session_id, answer, False)
         except ConsoleSessionError as exc:
-            self.error.emit(str(exc))
+            self.error.emit(self.session_id, str(exc))
         except Exception:
             traceback.print_exc()
-            self.error.emit('Unexpected internal error while generating a response.')
+            self.error.emit(self.session_id, 'Unexpected internal error while generating a response.')
+        finally:
+            self.done.emit(self.session_id)
 
 
 @dataclass
@@ -170,6 +174,7 @@ class MainWindow(QMainWindow):
         self.app_config = app_config
         self.current_session_id: int | None = None
         self._active_generations: dict[int, ActiveGeneration] = {}
+        self._thread_session_ids: dict[QThread, int] = {}
         self._connection_test_thread: QThread | None = None
         self._connection_test_worker: ConnectionTestWorker | None = None
         self._streaming_assistant_started = False
@@ -751,7 +756,7 @@ class MainWindow(QMainWindow):
         self._reasoning_placeholder_start = None
         thread = QThread()
         console = self._create_generation_console(settings)
-        worker = ChatWorker(console, prompt_text)
+        worker = ChatWorker(session_id, console, prompt_text)
         generation = ActiveGeneration(
             session_id=session_id,
             thread=thread,
@@ -759,24 +764,24 @@ class MainWindow(QMainWindow):
             console=console,
         )
         self._active_generations[session_id] = generation
+        self._thread_session_ids[thread] = session_id
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.chunk.connect(lambda kind, chunk, sid=session_id: self._on_generation_chunk(sid, kind, chunk))
-        worker.finished.connect(
-            lambda answer, was_streamed, sid=session_id: self._on_generation_success(sid, answer, was_streamed)
-        )
-        worker.error.connect(lambda error_text, sid=session_id: self._on_generation_error(sid, error_text))
-        worker.finished.connect(lambda _answer, _was_streamed, sid=session_id: self._quit_worker_thread(sid))
-        worker.error.connect(lambda _error_text, sid=session_id: self._quit_worker_thread(sid))
-        thread.finished.connect(lambda sid=session_id: self._cleanup_worker(sid))
+        worker.chunk.connect(self._on_generation_chunk)
+        worker.finished.connect(self._on_generation_success)
+        worker.error.connect(self._on_generation_error)
+        worker.done.connect(self._quit_worker_thread)
+        thread.finished.connect(self._cleanup_finished_worker)
         thread.start()
         self._reload_sessions()
 
+    @Slot(int)
     def _quit_worker_thread(self, session_id: int) -> None:
         generation = self._active_generations.get(session_id)
         if generation is not None:
             generation.thread.quit()
 
+    @Slot(int, str, str)
     def _on_generation_chunk(self, session_id: int, kind: str, chunk: str) -> None:
         generation = self._active_generations.get(session_id)
         if generation is None:
@@ -798,6 +803,7 @@ class MainWindow(QMainWindow):
             self._append_stream_text(chunk)
             self._set_status('Generating response...')
 
+    @Slot(int, str, bool)
     def _on_generation_success(self, session_id: int, answer: str, was_streamed: bool) -> None:
         generation = self._active_generations.get(session_id)
         if generation is None:
@@ -834,6 +840,7 @@ class MainWindow(QMainWindow):
         self._reload_sessions()
         self._refresh_controls()
 
+    @Slot(int, str)
     def _on_generation_error(self, session_id: int, error_text: str) -> None:
         generation = self._active_generations.get(session_id)
         if generation is None:
@@ -855,6 +862,16 @@ class MainWindow(QMainWindow):
             self._append_block('System', f'Error: {error_text}')
         self._set_status('Error')
         self._refresh_controls()
+
+    @Slot()
+    def _cleanup_finished_worker(self) -> None:
+        sender = self.sender()
+        if not isinstance(sender, QThread):
+            return
+        session_id = self._thread_session_ids.pop(sender, None)
+        if session_id is None:
+            return
+        self._cleanup_worker(session_id)
 
     def _cleanup_worker(self, session_id: int) -> None:
         generation = self._active_generations.pop(session_id, None)
