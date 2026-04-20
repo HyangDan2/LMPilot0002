@@ -85,7 +85,7 @@ def extract_single_doc_command(
     root = require_working_folder(working_folder)
     if len(args) != 1:
         raise SlashToolError("Usage: /extract_single_doc <path>")
-    context.reset_for_folder(root) if context.working_folder != root else None
+    context.reset_for_folder(root) if not _same_working_folder(context.working_folder, root) else None
     path = resolve_workspace_path(root, args[0])
     document = extract_single_doc_mid_level(path, ExtractionContext(working_folder=root))
     context.documents = [document]
@@ -113,7 +113,7 @@ def extract_docs_command(
     root = require_working_folder(working_folder)
     if args:
         raise SlashToolError("Usage: /extract_docs")
-    context.reset_for_folder(root) if context.working_folder != root else None
+    context.reset_for_folder(root) if not _same_working_folder(context.working_folder, root) else None
     documents = extract_docs_mid_level(root, ExtractionContext(working_folder=root))
     context.documents = documents
     context.doc_map = None
@@ -205,7 +205,7 @@ def generate_report_command(
 ) -> SlashToolResult:
     root = require_working_folder(working_folder)
     goal, llm_input_chars, use_llm, force_refresh = _parse_generate_report_args(args)
-    context.reset_for_folder(root) if context.working_folder != root else None
+    context.reset_for_folder(root) if not _same_working_folder(context.working_folder, root) else None
     llm_client = _make_llm_client(context) if use_llm else None
     result = generate_report_pipeline(
         root,
@@ -289,7 +289,7 @@ def summarize_file_command(
 
 
 def _ensure_documents(root: Path, context: SlashToolContext) -> None:
-    if context.working_folder != root:
+    if not _same_working_folder(context.working_folder, root):
         context.reset_for_folder(root)
     if context.documents:
         return
@@ -384,6 +384,12 @@ def _make_llm_client(context: SlashToolContext):
     client = OpenAICompatibleClient(settings)
     context.active_llm_client = client
     return client
+
+
+def _same_working_folder(left: Path | None, right: Path) -> bool:
+    if left is None:
+        return False
+    return left.expanduser().resolve() == right.expanduser().resolve()
 
 
 def _document_summary(document, root: Path) -> str:

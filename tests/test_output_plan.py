@@ -29,6 +29,8 @@ class OutputPlanTests(unittest.TestCase):
             ["Summary", "Source Documents", "Open Issues and Next Actions"],
         )
         self.assertEqual(plan.sections[0].max_chars, 20480)
+        self.assertEqual(plan.sections[1].max_chars, 200)
+        self.assertEqual(plan.sections[2].max_chars, 200)
         self.assertIn("blk_001", plan.sections[0].source_block_ids)
 
     def test_generate_output_plan_uses_grounded_evidence(self) -> None:

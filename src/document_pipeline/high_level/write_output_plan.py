@@ -42,14 +42,14 @@ def write_output_plan(
             title="Source Documents",
             purpose="List source files used for traceability without exposing pipeline internals.",
             source_block_ids=all_block_ids[:10],
-            max_chars=1000,
+            max_chars=200,
         ),
         OutputPlanSection(
             section_id="open_issues",
             title="Open Issues and Next Actions",
             purpose="Name missing evidence, unclear assumptions, parser limitations, and concrete follow-up actions.",
             source_block_ids=all_block_ids,
-            max_chars=1400,
+            max_chars=200,
         ),
     ]
     return OutputPlan(

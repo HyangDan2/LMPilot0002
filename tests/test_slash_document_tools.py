@@ -139,7 +139,10 @@ class SlashDocumentToolsTests(unittest.TestCase):
                 [section["title"] for section in json.loads(plan_path.read_text(encoding="utf-8"))["sections"]],
                 ["Summary", "Source Documents", "Open Issues and Next Actions"],
             )
-            self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["sections"][0]["max_chars"], 20480)
+            plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+            self.assertEqual(plan_payload["sections"][0]["max_chars"], 20480)
+            self.assertEqual(plan_payload["sections"][1]["max_chars"], 200)
+            self.assertEqual(plan_payload["sections"][2]["max_chars"], 200)
             self.assertIsNotNone(context.doc_map)
 
         assert result is not None
