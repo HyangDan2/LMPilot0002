@@ -1,6 +1,6 @@
 backend: "openai"
-openai_base_url: ""
-openai_api_key: ""
+openai_base_url: "https://integrate.api.nvidia.com/v1"
+openai_api_key: "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"
 openai_model: ""
 openai_embedding_model: ""
 connection_settings_path: "openai_settings.json"

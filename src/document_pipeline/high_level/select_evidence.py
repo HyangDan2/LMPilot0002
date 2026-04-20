@@ -26,6 +26,7 @@ ENGINEERING_TERMS = {
     "요구",
 }
 NUMBER_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:%|mm|cm|m|kg|g|ms|s|sec|min|h|hr|v|a|w|kw|kwh|pa|kpa|mpa|hz|rpm|°c|c)?\b", re.IGNORECASE)
+MAX_EVIDENCE_BLOCKS_PER_DOCUMENT = 12
 
 
 def select_evidence_blocks(
@@ -50,7 +51,10 @@ def select_evidence_blocks(
     per_document_counts: dict[str, int] = {}
     budget = max(800, max_input_chars)
     for block in ordered:
-        if per_document_counts.get(block.document_id, 0) >= 6 and len(per_document_counts) > 1:
+        if (
+            per_document_counts.get(block.document_id, 0) >= MAX_EVIDENCE_BLOCKS_PER_DOCUMENT
+            and len(per_document_counts) > 1
+        ):
             continue
         document = docs_by_id.get(block.document_id)
         source_filename = document.source.filename if document is not None else ""
