@@ -46,8 +46,8 @@ No prerequisite slash command is required. It reuses unchanged extraction artifa
 Use --generate-detail true to save optional LLM page, slide, sheet, or file summaries without adding them to the final report prompt. Detail progress prints every item as it is processed and completed.
 Progress, ranked-groups mode status, timings, and final Markdown stream into the chat while generated_report.md is saved.
 Extracted embedded images are saved under llm_result/document_pipeline/assets/DOCUMENT_ID/.
-The saved report uses Summary, Source Documents, and Open Issues and Next Actions as top-level sections.
-Summary may include What the Document Explicitly Describes, Main Methods or Components Explicitly Mentioned, Quantitative Values Explicitly Present, Explicit Limitations or Constraints, and Unclear or Not Specified in Selected Evidence.
+The saved report uses Summary, Key Concepts, Open Questions, Next Actions, and Related Documents as top-level sections.
+The report keeps Summary brief, makes Key Concepts the dominant engineering-focused section, and aims to cover every important concept present in the document set.
 Saved report paragraphs place each sentence on a separate line.
 Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
 

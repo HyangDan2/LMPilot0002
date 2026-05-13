@@ -23,7 +23,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
         self.assertIn("selected_evidence.json", result.text)
         self.assertIn("detail_summaries.json", result.text)
-        self.assertIn("What the Document Explicitly Describes", result.text)
+        self.assertIn("Summary, Key Concepts, Open Questions, Next Actions, and Related Documents", result.text)
         self.assertIn("file_summaries", result.text)
         self.assertNotIn("llm_chunk_summaries.json", result.text)
 
@@ -139,12 +139,14 @@ class SlashDocumentToolsTests(unittest.TestCase):
             self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["goal"], "summarize about demo summary")
             self.assertEqual(
                 [section["title"] for section in json.loads(plan_path.read_text(encoding="utf-8"))["sections"]],
-                ["Summary", "Source Documents", "Open Issues and Next Actions"],
+                ["Summary", "Key Concepts", "Open Questions", "Next Actions", "Related Documents"],
             )
             plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
-            self.assertEqual(plan_payload["sections"][0]["max_chars"], 20480)
-            self.assertEqual(plan_payload["sections"][1]["max_chars"], 200)
-            self.assertEqual(plan_payload["sections"][2]["max_chars"], 200)
+            self.assertEqual(plan_payload["sections"][0]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][1]["max_chars"], 6000)
+            self.assertEqual(plan_payload["sections"][2]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][3]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][4]["max_chars"], 800)
             self.assertIsNotNone(context.doc_map)
 
         assert result is not None

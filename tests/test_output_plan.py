@@ -16,7 +16,7 @@ from src.document_pipeline.schemas import (
 
 
 class OutputPlanTests(unittest.TestCase):
-    def test_write_output_plan_uses_three_engineering_sections(self) -> None:
+    def test_write_output_plan_uses_requested_report_sections(self) -> None:
         document = _sample_document()
         doc_map = build_doc_map([document])
 
@@ -26,11 +26,13 @@ class OutputPlanTests(unittest.TestCase):
         self.assertEqual(plan.source_document_ids, ["doc_report"])
         self.assertEqual(
             [section.title for section in plan.sections],
-            ["Summary", "Source Documents", "Open Issues and Next Actions"],
+            ["Summary", "Key Concepts", "Open Questions", "Next Actions", "Related Documents"],
         )
-        self.assertEqual(plan.sections[0].max_chars, 20480)
-        self.assertEqual(plan.sections[1].max_chars, 200)
-        self.assertEqual(plan.sections[2].max_chars, 200)
+        self.assertEqual(plan.sections[0].max_chars, 1200)
+        self.assertEqual(plan.sections[1].max_chars, 6000)
+        self.assertEqual(plan.sections[2].max_chars, 1200)
+        self.assertEqual(plan.sections[3].max_chars, 1200)
+        self.assertEqual(plan.sections[4].max_chars, 800)
         self.assertIn("blk_001", plan.sections[0].source_block_ids)
 
     def test_generate_output_plan_uses_grounded_evidence(self) -> None:
@@ -43,12 +45,10 @@ class OutputPlanTests(unittest.TestCase):
 
         self.assertIn("# Engineering Report for Report", markdown)
         self.assertIn("## Summary", markdown)
-        self.assertIn("### What the Document Explicitly Describes", markdown)
-        self.assertIn("### Main Methods or Components Explicitly Mentioned", markdown)
-        self.assertIn("### Quantitative Values Explicitly Present", markdown)
-        self.assertIn("### Explicit Limitations or Constraints", markdown)
-        self.assertIn("## Source Documents", markdown)
-        self.assertIn("## Open Issues and Next Actions", markdown)
+        self.assertIn("## Key Concepts", markdown)
+        self.assertIn("## Open Questions", markdown)
+        self.assertIn("## Next Actions", markdown)
+        self.assertIn("## Related Documents", markdown)
         self.assertIn("Revenue grew by 10%.", markdown)
         self.assertNotIn("## Provenance", markdown)
 

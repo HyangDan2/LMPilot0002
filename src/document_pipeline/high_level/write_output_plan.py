@@ -12,6 +12,13 @@ SUMMARY_SUBSECTIONS = [
     "Explicit Limitations or Constraints",
     "Unclear or Not Specified in Selected Evidence",
 ]
+REPORT_SECTION_TITLES = [
+    "Summary",
+    "Key Concepts",
+    "Open Questions",
+    "Next Actions",
+    "Related Documents",
+]
 
 
 def write_output_plan(
@@ -28,26 +35,42 @@ def write_output_plan(
             section_id="summary",
             title="Summary",
             purpose=(
-                "Provide an evidence-grounded summary that separates explicit document content, "
-                "explicitly mentioned methods or components, quantitative values, explicit "
-                "limitations or constraints, and facts not specified in the selected evidence."
+                "Provide a compact executive summary of the document set. "
+                "This section should be brief relative to the rest of the report."
             ),
             source_block_ids=all_block_ids[:12],
-            max_chars=20480,
+            max_chars=1200,
         ),
         OutputPlanSection(
-            section_id="source_documents",
-            title="Source Documents",
-            purpose="List source files used for traceability without exposing pipeline internals.",
+            section_id="key_concepts",
+            title="Key Concepts",
+            purpose=(
+                "Explain the important concepts in engineering terms and cover the full set of concepts "
+                "present across the source documents."
+            ),
+            source_block_ids=all_block_ids,
+            max_chars=6000,
+        ),
+        OutputPlanSection(
+            section_id="open_questions",
+            title="Open Questions",
+            purpose="Identify unresolved questions, missing evidence, and ambiguities that remain after reading the sources.",
+            source_block_ids=all_block_ids[:8],
+            max_chars=1200,
+        ),
+        OutputPlanSection(
+            section_id="next_actions",
+            title="Next Actions",
+            purpose="List practical engineering follow-up actions, checks, or validation tasks suggested by the evidence.",
+            source_block_ids=all_block_ids[:8],
+            max_chars=1200,
+        ),
+        OutputPlanSection(
+            section_id="related_documents",
+            title="Related Documents",
+            purpose="List related source files and their relevance to the report topic.",
             source_block_ids=all_block_ids[:10],
-            max_chars=200,
-        ),
-        OutputPlanSection(
-            section_id="open_issues",
-            title="Open Issues and Next Actions",
-            purpose="Name missing evidence, unclear assumptions, parser limitations, and concrete follow-up actions.",
-            source_block_ids=[],
-            max_chars=200,
+            max_chars=800,
         ),
     ]
     return OutputPlan(

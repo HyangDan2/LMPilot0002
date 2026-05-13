@@ -265,25 +265,17 @@ python run.py --config config.yaml
 
   `/render_report_pptx` loads `generated_report.md`, `extracted_documents.json`, and the extracted asset files, builds a deterministic slide plan, and renders a PowerPoint deck. The renderer places matched embedded images on slides when asset captions and image-block evidence overlap with the slide content; otherwise it falls back to text-only slides.
 
-  The generated engineering report uses three top-level sections:
+  The generated engineering report uses five top-level sections:
 
   ```text
   Summary
-  Source Documents
-  Open Issues and Next Actions
+  Key Concepts
+  Open Questions
+  Next Actions
+  Related Documents
   ```
 
-  The `Summary` section is intentionally grounded in the selected evidence. When evidence supports it, `Summary` may include these subsections:
-
-  ```text
-  What the Document Explicitly Describes
-  Main Methods or Components Explicitly Mentioned
-  Quantitative Values Explicitly Present
-  Explicit Limitations or Constraints
-  Unclear or Not Specified in Selected Evidence
-  ```
-
-  Unsupported categories should be stated as not explicitly present in the selected evidence rather than filled with inferred architecture, risks, or recommendations.
+  The report keeps `Summary` brief, makes `Key Concepts` the dominant engineering-focused section, and aims to cover every important concept supported by the document set. `Open Questions` captures unresolved ambiguities and missing evidence. `Next Actions` lists practical follow-up work suggested by the sources. `Related Documents` ties the report back to the source files.
 
   Large documents automatically use local ranked evidence grouping. Chat progress shows whether the run uses `one-shot` or `ranked-groups` mode, raw group count, selected top group count, representative evidence count, and final prompt size. The app does not call the LLM during grouping; the LLM is used only for the final report.
 

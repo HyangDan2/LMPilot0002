@@ -20,7 +20,7 @@ class RenderReportPptxTests(unittest.TestCase):
                 "# Engineering Report\n\n"
                 "## Summary\n"
                 "System diagram confirms the architecture flow.\n"
-                "## Open Issues and Next Actions\n"
+                "## Open Questions\n"
                 "Validate the architecture against test data.\n"
             )
 

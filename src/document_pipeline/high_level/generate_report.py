@@ -8,7 +8,7 @@ from src.document_pipeline.schemas import DocumentMap, ExtractedDocument, LLMRep
 from .generate_output_plan import generate_output_plan
 from .markdown_format import sentence_per_line_markdown
 from .select_evidence import format_selected_evidence
-from .write_output_plan import SUMMARY_SUBSECTIONS
+from .write_output_plan import REPORT_SECTION_TITLES
 
 ProgressCallback = Callable[[str, str], None]
 
@@ -160,23 +160,23 @@ def final_markdown_prompt(
         f"{len(document.blocks)} block(s), {len(document.assets)} asset(s), document_id={document.document_id}"
         for document in documents
     ) or "- none"
-    summary_subsections = ", ".join(SUMMARY_SUBSECTIONS)
     instructions = (
         "Write the final report as Markdown only, using a concise engineering-report tone.\n\n"
         "Requirements:\n"
         "- Start with exactly one H1 title.\n"
-        "- Use exactly these H2 sections in this order: Summary, Source Documents, Open Issues and Next Actions.\n"
-        f"- Under Summary, use H3 subsections when evidence supports them: {summary_subsections}.\n"
-        "- If a Summary subsection lacks evidence, write: Not explicitly stated in the selected evidence.\n"
+        f"- Use exactly these H2 sections in this order: {', '.join(REPORT_SECTION_TITLES)}.\n"
         "- Focus on the report query.\n"
-        "- Use only the selected evidence packet.\n"
-        "- In Summary, summarize only what the evidence explicitly states.\n"
-        "- Do not infer architecture, databases, proprietary engines, implementation details, risks, constraints, or recommendations unless explicitly stated in cited evidence.\n"
-        "- Do not add recommendations unless the selected evidence itself contains recommendations or requested next actions.\n"
-        "- In Source Documents, include a compact traceability table for the source files.\n"
-        "- In Open Issues and Next Actions, list only extraction warnings, missing selected evidence, or explicitly stated unresolved items.\n"
-        "- Distinguish explicit facts from unstated items and gaps.\n"
-        "- Include quantitative values only when evidence contains numbers, tests, specs, or results.\n"
+        "- Use only the selected evidence packet plus the provided grouped-evidence context when present.\n"
+        "- Keep the approximate emphasis of the report as: Summary about 10%, Key Concepts about 50%, Open Questions about 10%, Next Actions about 10%, Related Documents about 10%.\n"
+        "- Summary should be brief and orient the reader quickly.\n"
+        "- Key Concepts should dominate the report and explain the document content in an engineering sense.\n"
+        "- In Key Concepts, include every important concept supported by the documents, even if some concepts are small or appear only once.\n"
+        "- Merge duplicate concepts, but do not omit meaningful ones.\n"
+        "- Open Questions should identify ambiguities, missing evidence, assumptions that still need confirmation, and parser or extraction gaps when relevant.\n"
+        "- Next Actions should list practical engineering follow-up work, validation checks, decisions, or investigations suggested by the evidence.\n"
+        "- Related Documents should list the source files and briefly explain why each one matters to the report topic.\n"
+        "- Ground all factual claims in the evidence and avoid unsupported invention.\n"
+        "- Include quantitative values when evidence contains numbers, tests, specs, or results.\n"
         "- Cite source filename and block ID for concrete claims.\n"
         "- Write each sentence on its own line in normal paragraphs.\n"
         "- Do not add extra H2 sections.\n"
