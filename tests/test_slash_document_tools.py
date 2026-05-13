@@ -18,6 +18,7 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/workspace_status", result.text)
         self.assertIn("/generate_markdown", result.text)
         self.assertIn("/generate_report", result.text)
+        self.assertIn("/render_report_pptx", result.text)
         self.assertIn("/summarize_file", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
         self.assertIn("selected_evidence.json", result.text)

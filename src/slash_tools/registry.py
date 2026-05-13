@@ -15,6 +15,7 @@ from .document_pipeline import (
     generate_report_command,
     normalize_text_command,
     read_file_info_command,
+    render_report_pptx_command,
     summarize_file_command,
     workspace_status_command,
 )
@@ -90,6 +91,12 @@ SLASH_TOOLS: dict[str, SlashTool] = {
         "Run extraction, mapping, output planning, evidence selection, and Markdown report generation.",
         "/generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]",
         generate_report_command,
+    ),
+    "/render_report_pptx": SlashTool(
+        "/render_report_pptx",
+        "Render a PowerPoint deck from the generated markdown report and extracted assets.",
+        "/render_report_pptx [--output filename.pptx]",
+        render_report_pptx_command,
     ),
     "/summarize_file": SlashTool(
         "/summarize_file",

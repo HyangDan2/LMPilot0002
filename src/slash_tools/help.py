@@ -43,17 +43,18 @@ File summaries are saved under llm_result/document_pipeline/file_summaries/DOCUM
 /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]
 Run extraction, mapping, output planning, representative evidence selection, optional local ranked evidence grouping, and one final engineering Markdown call in one step.
 No prerequisite slash command is required. It reuses unchanged extraction artifacts unless --fresh is provided.
-<<<<<<< HEAD
 Use --generate-detail true to save optional LLM page, slide, sheet, or file summaries without adding them to the final report prompt. Detail progress prints every item as it is processed and completed.
 Progress, ranked-groups mode status, timings, and final Markdown stream into the chat while generated_report.md is saved.
-=======
-Progress, timings, and final Markdown stream into the chat while generated_report.md is saved.
 Extracted embedded images are saved under llm_result/document_pipeline/assets/DOCUMENT_ID/.
->>>>>>> 6b31d3f (Update a extract function of images.)
 The saved report uses Summary, Source Documents, and Open Issues and Next Actions as top-level sections.
 Summary may include What the Document Explicitly Describes, Main Methods or Components Explicitly Mentioned, Quantitative Values Explicitly Present, Explicit Limitations or Constraints, and Unclear or Not Specified in Selected Evidence.
 Saved report paragraphs place each sentence on a separate line.
 Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
+
+/render_report_pptx [--output filename.pptx]
+Render a PowerPoint deck from generated_report.md plus extracted image assets.
+The command saves presentation_plan.json and a .pptx file under llm_result/document_pipeline/.
+Slides use deterministic text layout and include matched embedded images when the report and asset metadata overlap.
 
 Normal chat generated-artifact access:
 When a model needs a previous generated output, it can request:
@@ -68,6 +69,7 @@ Examples:
   /generate_report summarize all output in this folder
   /generate_report summarize about project risks
   /generate_report --no-llm summarize briefly
+  /render_report_pptx
 
 Supported file types:
 .pptx, .docx, .xlsx, .pdf
@@ -98,6 +100,8 @@ Automatic saved outputs:
 - /generate_report saves llm_result/document_pipeline/detail_summaries.json
 - /generate_report saves llm_result/document_pipeline/detail_summaries.md
 - /generate_report saves llm_result/document_pipeline/llm_report_attempts.json
+- /render_report_pptx saves llm_result/document_pipeline/presentation_plan.json
+- /render_report_pptx saves llm_result/document_pipeline/generated_report.pptx
 - /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/detail_summaries.json
 - /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/detail_summaries.md
 - /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/generated_summary.md

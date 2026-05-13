@@ -25,6 +25,8 @@ class WorkspaceState:
     detail_summaries_markdown_path: str | None = None
     report_attempts_path: str | None = None
     generated_markdown_path: str | None = None
+    presentation_plan_path: str | None = None
+    generated_pptx_path: str | None = None
     file_summaries_path: str | None = None
     document_count: int = 0
     asset_document_count: int = 0
@@ -54,6 +56,8 @@ class WorkspaceState:
             f"- detail_summaries.md: {_found(self.detail_summaries_markdown_path)}",
             f"- llm_report_attempts.json: {_found(self.report_attempts_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
+            f"- presentation_plan.json: {_found(self.presentation_plan_path)}",
+            f"- generated_report.pptx: {_found(self.generated_pptx_path)}",
             f"- file_summaries/: {_found(self.file_summaries_path, self.file_summary_count, 'summary folder(s)')}",
         ]
         if self.next_actions:
@@ -80,6 +84,8 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     detail_summaries_markdown_path = output_dir / "detail_summaries.md"
     attempts_path = output_dir / "llm_report_attempts.json"
     report_path = output_dir / "generated_report.md"
+    presentation_plan_path = output_dir / "presentation_plan.json"
+    generated_pptx_path = output_dir / "generated_report.pptx"
     file_summaries_path = output_dir / "file_summaries"
     document_count = _document_count(extracted_path)
     asset_document_count = _child_dir_count(assets_path)
@@ -107,6 +113,8 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         detail_summaries_markdown_path=_path_if_exists(detail_summaries_markdown_path, root),
         report_attempts_path=_path_if_exists(attempts_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
+        presentation_plan_path=_path_if_exists(presentation_plan_path, root),
+        generated_pptx_path=_path_if_exists(generated_pptx_path, root),
         file_summaries_path=_path_if_exists(file_summaries_path, root),
         document_count=document_count,
         asset_document_count=asset_document_count,
@@ -157,7 +165,7 @@ def _next_actions(
         return ["/generate_report summarize all output in this folder", "/build_doc_map"]
     if not has_output_plan or not has_report:
         return ["/generate_report summarize all output in this folder"]
-    return ["Ask a normal question about the generated report", "Re-run /extract_docs if source files changed"]
+    return ["/render_report_pptx", "Ask a normal question about the generated report"]
 
 
 def _found(path: str | None, count: int | None = None, unit: str = "") -> str:

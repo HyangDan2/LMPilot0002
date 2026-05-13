@@ -212,6 +212,12 @@ python run.py --config config.yaml
   /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]
   ```
 
+  Generate a PowerPoint deck from the saved report with:
+
+  ```text
+  /render_report_pptx [--output filename.pptx]
+  ```
+
   Examples:
 
   ```text
@@ -221,6 +227,7 @@ python run.py --config config.yaml
   /generate_report summarize about project risks
   /generate_report --no-llm summarize briefly
   /summarize_file --generate-detail true design_review.pptx
+  /render_report_pptx
   ```
 
   For quick inspection of one file, use:
@@ -255,6 +262,8 @@ python run.py --config config.yaml
   Use `--generate-detail true` with `/summarize_file` or `/generate_report` to generate optional LLM summaries for every page, slide, sheet, or file-level item. Detail summaries are batched for speed, but chat progress prints every current detail item as it is processed and completed. The summaries are saved as separate `detail_summaries.json` and `detail_summaries.md` artifacts and are not automatically added to the final report prompt. If no LLM client is configured, the app saves local extractive detail summaries with a fallback reason.
 
   `/generate_report` runs the complete engineering-report pipeline. You do not need to run `/extract_docs` or `/build_doc_map` first. The command scans the attached folder, reuses unchanged extraction artifacts when possible, then performs document mapping, output planning, representative evidence selection, optional local ranked evidence grouping for large documents, and one final LLM Markdown call. Use `--fresh` to force full re-extraction. Progress updates and per-stage timings stream into the chat while the tool runs; when the configured backend supports streaming, the final Markdown report streams into the Tool block while also being accumulated and saved as `generated_report.md`. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
+
+  `/render_report_pptx` loads `generated_report.md`, `extracted_documents.json`, and the extracted asset files, builds a deterministic slide plan, and renders a PowerPoint deck. The renderer places matched embedded images on slides when asset captions and image-block evidence overlap with the slide content; otherwise it falls back to text-only slides.
 
   The generated engineering report uses three top-level sections:
 
@@ -300,6 +309,8 @@ python run.py --config config.yaml
   detail_summaries.md
   llm_report_attempts.json
   generated_report.md
+  presentation_plan.json
+  generated_report.pptx
   file_summaries/<document_id>/detail_summaries.json
   file_summaries/<document_id>/detail_summaries.md
   file_summaries/<document_id>/generated_summary.md
@@ -332,6 +343,7 @@ python run.py --config config.yaml
   /extract_docs
   /build_doc_map
   /generate_markdown
+  /render_report_pptx
   ```
 
 * **Markdown export**

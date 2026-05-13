@@ -70,6 +70,9 @@ class SlidePlan:
     purpose: str
     source_refs: list[str] = field(default_factory=list)
     image_refs: list[str] = field(default_factory=list)
+    bullet_points: list[str] = field(default_factory=list)
+    image_path: str = ""
+    image_caption: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
