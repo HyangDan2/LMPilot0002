@@ -17,7 +17,7 @@ class DocumentParser(ABC):
     file_type: str
 
     @abstractmethod
-    def parse(self, path: Path) -> ParsedDocument:
+    def parse(self, path: Path, asset_output_dir: Path | None = None) -> ParsedDocument:
         """Parse a file into a ParsedDocument."""
 
     def doc_id(self, path: Path) -> str:
@@ -25,4 +25,3 @@ class DocumentParser(ABC):
 
     def title_from_path(self, path: Path) -> str:
         return path.stem.replace("_", " ").replace("-", " ").strip() or path.name
-

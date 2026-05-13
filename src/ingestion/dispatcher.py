@@ -27,8 +27,7 @@ def parser_for_path(path: Path) -> DocumentParser:
     return parser_class()
 
 
-def parse_document(path: Path) -> ParsedDocument:
+def parse_document(path: Path, asset_output_dir: Path | None = None) -> ParsedDocument:
     """Parse one supported file into the common schema."""
 
-    return parser_for_path(path).parse(path)
-
+    return parser_for_path(path).parse(path, asset_output_dir=asset_output_dir)

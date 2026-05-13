@@ -14,6 +14,10 @@ class Asset:
     page_or_slide: int | str | None = None
     path: str = ""
     caption: str = ""
+    mime_type: str = ""
+    sha256: str = ""
+    width: int | None = None
+    height: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,4 +88,3 @@ class PresentationPlan:
         payload = asdict(self)
         payload["slides"] = [slide.to_dict() for slide in self.slides]
         return payload
-

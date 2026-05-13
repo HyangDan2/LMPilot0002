@@ -20,10 +20,10 @@ Show file size and SHA-256 hash for a file inside the attached folder.
 Normalize whitespace, Unicode compatibility characters, and control characters.
 
 /extract_single_doc PATH
-Extract one supported document from the attached folder.
+Extract one supported document from the attached folder, including embedded image artifacts when available.
 
 /extract_docs
-Extract all supported documents from the attached folder.
+Extract all supported documents from the attached folder, including embedded image artifacts when available.
 
 /build_doc_map
 Build a structural document map from the latest /extract_docs result. If needed, it loads saved extracted_documents.json.
@@ -43,8 +43,13 @@ File summaries are saved under llm_result/document_pipeline/file_summaries/DOCUM
 /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]
 Run extraction, mapping, output planning, representative evidence selection, optional local ranked evidence grouping, and one final engineering Markdown call in one step.
 No prerequisite slash command is required. It reuses unchanged extraction artifacts unless --fresh is provided.
+<<<<<<< HEAD
 Use --generate-detail true to save optional LLM page, slide, sheet, or file summaries without adding them to the final report prompt. Detail progress prints every item as it is processed and completed.
 Progress, ranked-groups mode status, timings, and final Markdown stream into the chat while generated_report.md is saved.
+=======
+Progress, timings, and final Markdown stream into the chat while generated_report.md is saved.
+Extracted embedded images are saved under llm_result/document_pipeline/assets/DOCUMENT_ID/.
+>>>>>>> 6b31d3f (Update a extract function of images.)
 The saved report uses Summary, Source Documents, and Open Issues and Next Actions as top-level sections.
 Summary may include What the Document Explicitly Describes, Main Methods or Components Explicitly Mentioned, Quantitative Values Explicitly Present, Explicit Limitations or Constraints, and Unclear or Not Specified in Selected Evidence.
 Saved report paragraphs place each sentence on a separate line.
@@ -80,6 +85,7 @@ Advanced evidence flow:
 Automatic saved outputs:
 - /extract_docs saves llm_result/document_pipeline/extracted_documents.json
 - /extract_docs saves llm_result/document_pipeline/extraction_manifest.json
+- /extract_docs saves embedded images under llm_result/document_pipeline/assets/DOCUMENT_ID/
 - /extract_single_doc saves llm_result/document_pipeline/documents/DOCUMENT_ID.json
 - /build_doc_map saves llm_result/document_pipeline/document_map.json
 - /generate_report saves llm_result/document_pipeline/output_plan.json

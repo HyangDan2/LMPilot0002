@@ -235,6 +235,12 @@ python run.py --config config.yaml
   <attached-folder>/llm_result/document_pipeline/file_summaries/<document_id>/
   ```
 
+  Embedded document images extracted during `/summarize_file`, `/extract_docs`, or `/generate_report` are saved under:
+
+  ```text
+  <attached-folder>/llm_result/document_pipeline/assets/<document_id>/
+  ```
+
   The generated single-file summary uses three top-level sections:
 
   ```text
@@ -281,6 +287,7 @@ python run.py --config config.yaml
   ```text
   extracted_documents.json
   extraction_manifest.json
+  assets/<document_id>/<asset_id>.<ext>
   document_map.json
   output_plan.json
   selected_evidence.json

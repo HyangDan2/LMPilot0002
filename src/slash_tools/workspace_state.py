@@ -12,6 +12,7 @@ class WorkspaceState:
     working_folder: str
     extracted_documents_path: str | None = None
     extraction_manifest_path: str | None = None
+    assets_path: str | None = None
     document_map_path: str | None = None
     output_plan_path: str | None = None
     selected_evidence_path: str | None = None
@@ -26,6 +27,7 @@ class WorkspaceState:
     generated_markdown_path: str | None = None
     file_summaries_path: str | None = None
     document_count: int = 0
+    asset_document_count: int = 0
     file_summary_count: int = 0
     next_actions: list[str] = field(default_factory=list)
 
@@ -39,6 +41,7 @@ class WorkspaceState:
             "Artifacts:",
             f"- extracted_documents.json: {_found(self.extracted_documents_path, self.document_count, 'document(s)')}",
             f"- extraction_manifest.json: {_found(self.extraction_manifest_path)}",
+            f"- assets/: {_found(self.assets_path, self.asset_document_count, 'document folder(s)')}",
             f"- document_map.json: {_found(self.document_map_path)}",
             f"- output_plan.json: {_found(self.output_plan_path)}",
             f"- selected_evidence.json: {_found(self.selected_evidence_path)}",
@@ -64,6 +67,7 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     output_dir = pipeline_output_dir(root)
     extracted_path = output_dir / "extracted_documents.json"
     manifest_path = output_dir / "extraction_manifest.json"
+    assets_path = output_dir / "assets"
     doc_map_path = output_dir / "document_map.json"
     output_plan_path = output_dir / "output_plan.json"
     selected_evidence_path = output_dir / "selected_evidence.json"
@@ -78,6 +82,7 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     report_path = output_dir / "generated_report.md"
     file_summaries_path = output_dir / "file_summaries"
     document_count = _document_count(extracted_path)
+    asset_document_count = _child_dir_count(assets_path)
     file_summary_count = _file_summary_count(file_summaries_path)
     next_actions = _next_actions(
         has_documents=extracted_path.exists() and document_count > 0,
@@ -89,6 +94,7 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         working_folder=str(root),
         extracted_documents_path=_path_if_exists(extracted_path, root),
         extraction_manifest_path=_path_if_exists(manifest_path, root),
+        assets_path=_path_if_exists(assets_path, root),
         document_map_path=_path_if_exists(doc_map_path, root),
         output_plan_path=_path_if_exists(output_plan_path, root),
         selected_evidence_path=_path_if_exists(selected_evidence_path, root),
@@ -103,6 +109,7 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         generated_markdown_path=_path_if_exists(report_path, root),
         file_summaries_path=_path_if_exists(file_summaries_path, root),
         document_count=document_count,
+        asset_document_count=asset_document_count,
         file_summary_count=file_summary_count,
         next_actions=next_actions,
     )
@@ -129,6 +136,10 @@ def _document_count(path: Path) -> int:
 
 
 def _file_summary_count(path: Path) -> int:
+    return _child_dir_count(path)
+
+
+def _child_dir_count(path: Path) -> int:
     if not path.is_dir():
         return 0
     return sum(1 for child in path.iterdir() if child.is_dir())
