@@ -7,7 +7,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class PipelineConfig:
-    """Runtime configuration for the render_pptx workspace pipeline."""
+    """Runtime configuration for the workspace planning pipeline."""
 
     working_dir: Path
     normalized_dir: Path

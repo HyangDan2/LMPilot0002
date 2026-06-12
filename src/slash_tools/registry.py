@@ -1,29 +1,17 @@
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 from .context import SlashToolContext
-from .document_pipeline import (
-    build_doc_map_command,
-    detect_file_type_command,
-    extract_docs_command,
-    extract_single_doc_command,
-    generate_markdown_command,
-    generate_report_command,
-    normalize_text_command,
-    read_file_info_command,
-<<<<<<< HEAD
-=======
-    render_report_pptx_command,
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-    summarize_file_command,
-    workspace_status_command,
-)
 from .errors import SlashToolError
-from .help import help_command
+from .evaluate_file import evaluate_file_command
+from .extract_file import extract_file_command
+from .help import tool_help_command
+from .save_last_output import save_last_output_command
+from .use_file import use_file_command
 from .results import SlashToolResult, error_result
 
 
@@ -34,81 +22,47 @@ SlashHandler = Callable[[list[str], str | Path | None, SlashToolContext, SlashPr
 @dataclass(frozen=True)
 class SlashTool:
     name: str
-    summary: str
+    description: str
     usage: str
     handler: SlashHandler
+    examples: list[str] = field(default_factory=list)
 
 
 SLASH_TOOLS: dict[str, SlashTool] = {
-    "/help": SlashTool("/help", "Show available local slash tools.", "/help", help_command),
-    "/detect_file_type": SlashTool(
-        "/detect_file_type",
-        "Detect file extension, MIME type, family, and confidence.",
-        "/detect_file_type <path>",
-        detect_file_type_command,
+    "/extract_file": SlashTool(
+        name="/extract_file",
+        description="Extract an xlsx, pptx, pdf, or docx file into markdown under HD2_result/extract_docs.",
+        usage="/extract_file <file>",
+        handler=extract_file_command,
+        examples=["/extract_file a.xlsx", "/extract_file 'deck review.pptx'"],
     ),
-    "/read_file_info": SlashTool(
-        "/read_file_info",
-        "Show file size and SHA-256 hash.",
-        "/read_file_info <path>",
-        read_file_info_command,
+    "/evaluate_file": SlashTool(
+        name="/evaluate_file",
+        description="Evaluate a target markdown or source file against a standard markdown or source file using the configured LLM.",
+        usage="/evaluate_file <standard markdown|file> <target markdown|file> [extra prompt]",
+        handler=evaluate_file_command,
+        examples=["/evaluate_file a.xlsx b.pptx 해당 내용이 제대로 구성되어 있는지 확인하라"],
     ),
-    "/normalize_text": SlashTool(
-        "/normalize_text",
-        "Normalize whitespace and control characters.",
-        "/normalize_text <text>",
-        normalize_text_command,
+    "/use_file": SlashTool(
+        name="/use_file",
+        description="Ask the configured LLM to answer from one markdown or source file, extracting it first when needed.",
+        usage="/use_file <markdown|file> [instruction]",
+        handler=use_file_command,
+        examples=["/use_file a.xlsx 해당 파일에서 quantitative result를 찾아서 요약하라", "/use_file a.xlsx"],
     ),
-    "/extract_single_doc": SlashTool(
-        "/extract_single_doc",
-        "Extract one document and auto-save JSON artifacts.",
-        "/extract_single_doc <path>",
-        extract_single_doc_command,
+    "/save_last_output": SlashTool(
+        name="/save_last_output",
+        description="Save the latest assistant or tool output to HD2_result/save_last_output.",
+        usage="/save_last_output",
+        handler=save_last_output_command,
+        examples=["/save_last_output"],
     ),
-    "/extract_docs": SlashTool(
-        "/extract_docs",
-        "Extract all supported documents in the attached folder and auto-save JSON artifacts.",
-        "/extract_docs",
-        extract_docs_command,
-    ),
-    "/build_doc_map": SlashTool(
-        "/build_doc_map",
-        "Build and auto-save a structural document map.",
-        "/build_doc_map",
-        build_doc_map_command,
-    ),
-    "/workspace_status": SlashTool(
-        "/workspace_status",
-        "Show which document-pipeline artifacts are available.",
-        "/workspace_status",
-        workspace_status_command,
-    ),
-    "/generate_markdown": SlashTool(
-        "/generate_markdown",
-        "Generate and auto-save a deterministic markdown evidence report.",
-        "/generate_markdown",
-        generate_markdown_command,
-    ),
-    "/generate_report": SlashTool(
-        "/generate_report",
-        "Run extraction, mapping, output planning, evidence selection, and Markdown report generation.",
-        "/generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]",
-        generate_report_command,
-    ),
-<<<<<<< HEAD
-=======
-    "/render_report_pptx": SlashTool(
-        "/render_report_pptx",
-        "Render a PowerPoint deck from the generated markdown report and extracted assets.",
-        "/render_report_pptx [--output filename.pptx]",
-        render_report_pptx_command,
-    ),
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-    "/summarize_file": SlashTool(
-        "/summarize_file",
-        "Summarize one supported file from the attached folder.",
-        "/summarize_file <path> [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]",
-        summarize_file_command,
+    "/tool_help": SlashTool(
+        name="/tool_help",
+        description="Show registry-generated help for all available local slash tools.",
+        usage="/tool_help",
+        handler=tool_help_command,
+        examples=["/tool_help"],
     ),
 }
 
@@ -128,17 +82,11 @@ def run_slash_command(
         return error_result(f"malformed slash command: {exc}")
     if not parts:
         return None
-    command = parts[0].lower()
+    command = parts[0]
     tool = SLASH_TOOLS.get(command)
     if tool is None:
-        return error_result(f"unknown slash command '{command}'. Run /help to see available commands.", command)
+        return error_result(f"unknown slash command '{command}'. Run /tool_help to see available commands.", command)
     try:
-        result = tool.handler(parts[1:], working_folder, context, progress)
-        context.last_tool_name = result.tool_name
-        context.last_tool_summary = result.history_text
-        context.saved_files = list(result.saved_files)
-        return result
+        return tool.handler(parts[1:], working_folder, context, progress)
     except SlashToolError as exc:
         return error_result(str(exc), command)
-    except Exception as exc:
-        return error_result(f"unexpected failure while running {command}: {exc}", command)

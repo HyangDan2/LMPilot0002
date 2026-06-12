@@ -62,6 +62,14 @@ def process_until_idle(app: QApplication, window: MainWindow, cycles: int = 120)
         time.sleep(0.005)
 
 
+def process_until_all_idle(app: QApplication, window: MainWindow, cycles: int = 120) -> None:
+    for _ in range(cycles):
+        app.processEvents()
+        if not window._active_generations and not window._active_slash_tools:
+            return
+        time.sleep(0.005)
+
+
 class GuiFlowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.app = QApplication.instance() or QApplication([])
@@ -95,6 +103,29 @@ class GuiFlowTests(unittest.TestCase):
         self.assertEqual(prompt.messages[-1], {"role": "user", "content": "second"})
         self.assertIn("<start_of_turn>user\nsecond<end_of_turn>", prompt.completion_prompt)
         self.assertTrue(prompt.completion_prompt.endswith("<start_of_turn>model"))
+
+        window.close()
+        process_events(self.app, 5)
+
+    def test_slash_prefixed_input_runs_local_tool(self) -> None:
+        console = FakeConsole()
+        db_path = Path(tempfile.mkdtemp()) / "app.db"
+        repository = ChatRepository(str(db_path))
+        window = MainWindow(
+            console,
+            repository,
+            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
+        )
+
+        window.input_edit.setPlainText("/tool_help")
+        window.on_send()
+        process_until_all_idle(self.app, window)
+
+        self.assertEqual(console.prompts, [])
+        messages = repository.get_messages(window.current_session_id)
+        self.assertEqual([message["role"] for message in messages], ["user", "tool"])
+        self.assertIn("/extract_file", messages[-1]["content"])
+        self.assertIn("/evaluate_file", window.chat_view.toPlainText())
 
         window.close()
         process_events(self.app, 5)

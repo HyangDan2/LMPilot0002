@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import mimetypes
 import posixpath
+import hashlib
 from pathlib import Path
-
-from src.document_pipeline.low_level.file_io import compute_content_hash
 
 
 def guess_mime_type(path: str) -> str:
@@ -19,7 +18,7 @@ def write_asset_file(
     source_name: str,
     data: bytes,
 ) -> tuple[str, str]:
-    sha256 = compute_content_hash(data)
+    sha256 = hashlib.sha256(data).hexdigest()
     if asset_output_dir is None:
         return "", sha256
 

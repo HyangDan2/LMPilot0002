@@ -1,147 +1,29 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from .context import SlashToolContext
 from .results import SlashToolResult
 
 
-HELP_TEXT = """LLM Workspace Help
+def tool_help_command(args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None) -> SlashToolResult:
+    from .registry import SLASH_TOOLS
 
-Local slash tools:
-
-/help
-Show this help text.
-
-/detect_file_type PATH
-Detect extension, MIME type, document family, and confidence for a file inside the attached folder.
-
-/read_file_info PATH
-Show file size and SHA-256 hash for a file inside the attached folder.
-
-/normalize_text TEXT
-Normalize whitespace, Unicode compatibility characters, and control characters.
-
-/extract_single_doc PATH
-<<<<<<< HEAD
-Extract one supported document from the attached folder.
-
-/extract_docs
-Extract all supported documents from the attached folder.
-=======
-Extract one supported document from the attached folder, including embedded image artifacts when available.
-
-/extract_docs
-Extract all supported documents from the attached folder, including embedded image artifacts when available.
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-
-/build_doc_map
-Build a structural document map from the latest /extract_docs result. If needed, it loads saved extracted_documents.json.
-
-/workspace_status
-Show which document-pipeline artifacts are available in the attached folder.
-
-/generate_markdown
-Generate a deterministic markdown report from extracted evidence.
-
-/summarize_file PATH [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]
-Summarize one supported file from the attached folder.
-Use --generate-detail true to save optional LLM page, slide, sheet, or file summaries as detail_summaries.json and detail_summaries.md. Detail progress prints every item as it is processed and completed.
-The saved file summary uses Summary, Source Details, and Open Issues and Next Actions.
-File summaries are saved under llm_result/document_pipeline/file_summaries/DOCUMENT_ID/.
-
-/generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]
-Run extraction, mapping, output planning, representative evidence selection, optional local ranked evidence grouping, and one final engineering Markdown call in one step.
-No prerequisite slash command is required. It reuses unchanged extraction artifacts unless --fresh is provided.
-Use --generate-detail true to save optional LLM page, slide, sheet, or file summaries without adding them to the final report prompt. Detail progress prints every item as it is processed and completed.
-Progress, ranked-groups mode status, timings, and final Markdown stream into the chat while generated_report.md is saved.
-<<<<<<< HEAD
-The saved report uses Summary, Source Documents, and Open Issues and Next Actions as top-level sections.
-Summary may include What the Document Explicitly Describes, Main Methods or Components Explicitly Mentioned, Quantitative Values Explicitly Present, Explicit Limitations or Constraints, and Unclear or Not Specified in Selected Evidence.
-Saved report paragraphs place each sentence on a separate line.
-Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
-
-=======
-Extracted embedded images are saved under llm_result/document_pipeline/assets/DOCUMENT_ID/.
-The saved report uses Summary, Key Concepts, Open Questions, Next Actions, and Related Documents as top-level sections.
-The report keeps Summary brief, makes Key Concepts the dominant engineering-focused section, and aims to cover every important concept present in the document set.
-Saved report paragraphs place each sentence on a separate line.
-Other sessions can run slash tools while /generate_report is active. Stop cancels the selected session's running tool.
-
-/render_report_pptx [--output filename.pptx]
-Render a PowerPoint deck from generated_report.md plus extracted image assets.
-The command saves presentation_plan.json and a .pptx file under llm_result/document_pipeline/.
-Slides use deterministic text layout and include matched embedded images when the report and asset metadata overlap.
-
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-Normal chat generated-artifact access:
-When a model needs a previous generated output, it can request:
-  [read_output] document_pipeline/generated_report.md [/read_output]
-  [list_outputs] document_pipeline [/list_outputs]
-Qwen-style aliases such as [read_file] llm/document_pipeline/generated_report.md [/read_file] are supported.
-Only files under the attached folder's llm_result/ directory can be read or listed.
-
-Examples:
-  /summarize_file design_review.pptx
-  /summarize_file test_results.xlsx summarize risks and quantitative results
-  /generate_report summarize all output in this folder
-  /generate_report summarize about project risks
-  /generate_report --no-llm summarize briefly
-<<<<<<< HEAD
-=======
-  /render_report_pptx
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-
-Supported file types:
-.pptx, .docx, .xlsx, .pdf
-
-Suggested flow:
-1. Attach a folder.
-2. Run /summarize_file FILE or /generate_report.
-3. Run /workspace_status.
-
-Advanced evidence flow:
-1. Run /extract_docs.
-2. Run /build_doc_map.
-3. Run /generate_markdown.
-
-Automatic saved outputs:
-- /extract_docs saves llm_result/document_pipeline/extracted_documents.json
-- /extract_docs saves llm_result/document_pipeline/extraction_manifest.json
-<<<<<<< HEAD
-=======
-- /extract_docs saves embedded images under llm_result/document_pipeline/assets/DOCUMENT_ID/
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-- /extract_single_doc saves llm_result/document_pipeline/documents/DOCUMENT_ID.json
-- /build_doc_map saves llm_result/document_pipeline/document_map.json
-- /generate_report saves llm_result/document_pipeline/output_plan.json
-- /generate_report saves llm_result/document_pipeline/selected_evidence.json
-- /generate_report saves llm_result/document_pipeline/evidence_groups.json
-- /generate_report saves llm_result/document_pipeline/selected_evidence_groups.json
-- /generate_report saves llm_result/document_pipeline/group_summaries.json
-- /generate_report saves llm_result/document_pipeline/recursive_summary_levels.json
-- /generate_report saves llm_result/document_pipeline/final_prompt_preview.txt
-- /generate_report saves llm_result/document_pipeline/detail_summaries.json
-- /generate_report saves llm_result/document_pipeline/detail_summaries.md
-- /generate_report saves llm_result/document_pipeline/llm_report_attempts.json
-<<<<<<< HEAD
-=======
-- /render_report_pptx saves llm_result/document_pipeline/presentation_plan.json
-- /render_report_pptx saves llm_result/document_pipeline/generated_report.pptx
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-- /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/detail_summaries.json
-- /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/detail_summaries.md
-- /summarize_file saves llm_result/document_pipeline/file_summaries/DOCUMENT_ID/generated_summary.md
-- /generate_markdown saves llm_result/document_pipeline/generated_report.md
-- /generate_report saves llm_result/document_pipeline/generated_report.md
-
-Not included yet:
-- summarize_map
-- integrated_result
-- active /generate_report cancellation
-"""
-
-
-def help_command(args, working_folder, context, progress=None) -> SlashToolResult:
-    return SlashToolResult(
-        text=HELP_TEXT,
-        tool_name="/help",
-        next_actions=["/extract_docs", "/workspace_status"],
-    )
+    lines = ["# Local Slash Tools", ""]
+    for tool in SLASH_TOOLS.values():
+        lines.extend(
+            [
+                f"## {tool.name}",
+                "",
+                tool.description,
+                "",
+                f"Usage: `{tool.usage}`",
+                "",
+            ]
+        )
+        if tool.examples:
+            lines.append("Examples:")
+            for example in tool.examples:
+                lines.append(f"- `{example}`")
+            lines.append("")
+    return SlashToolResult(text="\n".join(lines).strip(), tool_name="/tool_help")

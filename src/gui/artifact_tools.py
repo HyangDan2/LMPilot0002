@@ -29,11 +29,11 @@ class ArtifactToolResult:
 
 ARTIFACT_ACCESS_INSTRUCTION = """Generated artifact access:
 If you need previously generated output files, request them with one of these tags:
-[read_output] document_pipeline/generated_report.md [/read_output]
-[list_outputs] document_pipeline [/list_outputs]
+[read_output] extract_docs/a.xlsx.md [/read_output]
+[list_outputs] extract_docs [/list_outputs]
 Qwen-style aliases are also supported for generated outputs, such as:
-[read_file] llm/document_pipeline/generated_report.md [/read_file]
-Only generated files under llm_result/ are available through these tags.
+[read_file] llm/extract_docs/a.xlsx.md [/read_file]
+Only generated files under HD2_result/ are available through these tags.
 Do not say you lack authority to read generated artifacts; request them with the tag when needed."""
 
 
@@ -118,11 +118,11 @@ def build_artifact_followup_messages(
 
 def resolve_output_artifact_path(working_folder: str | Path, requested_path: str) -> Path:
     root = Path(working_folder).expanduser().resolve()
-    artifact_root = (root / "llm_result").resolve()
+    artifact_root = (root / "HD2_result").resolve()
     normalized = _normalize_artifact_request_path(requested_path)
     target = (root / normalized).expanduser().resolve()
     if target != artifact_root and artifact_root not in target.parents:
-        raise ValueError("Generated artifact access is limited to llm_result/.")
+        raise ValueError("Generated artifact access is limited to HD2_result/.")
     return target
 
 
@@ -133,13 +133,19 @@ def _normalize_artifact_request_path(requested_path: str) -> Path:
     if raw.startswith("/"):
         raise ValueError("Absolute paths are not allowed.")
     if raw.startswith("llm/"):
-        raw = "llm_result/" + raw[len("llm/") :]
+        raw = "HD2_result/" + raw[len("llm/") :]
     elif raw == "llm":
-        raw = "llm_result"
-    elif raw.startswith("document_pipeline/") or raw == "document_pipeline":
-        raw = "llm_result/" + raw
-    elif not raw.startswith("llm_result/") and raw != "llm_result":
-        raw = "llm_result/" + raw
+        raw = "HD2_result"
+    elif raw.startswith("extract_docs/") or raw == "extract_docs":
+        raw = "HD2_result/" + raw
+    elif raw.startswith("evaluate_file/") or raw == "evaluate_file":
+        raw = "HD2_result/" + raw
+    elif raw.startswith("use_file/") or raw == "use_file":
+        raw = "HD2_result/" + raw
+    elif raw.startswith("save_last_output/") or raw == "save_last_output":
+        raw = "HD2_result/" + raw
+    elif not raw.startswith("HD2_result/") and raw != "HD2_result":
+        raw = "HD2_result/" + raw
     path = Path(raw)
     if ".." in path.parts:
         raise ValueError("Path traversal is not allowed.")

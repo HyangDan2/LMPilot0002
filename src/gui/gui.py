@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.slash_tools import SlashToolContext, SlashToolResult, run_slash_command
-from src.slash_tools.results import error_result
 
 from .attachment_handler import (
     AttachmentError,
@@ -132,7 +131,7 @@ class ChatWorker(QObject):
 
 class SlashToolWorker(QObject):
     progress = Signal(int, str, str)
-    finished = Signal(int, object, object)
+    finished = Signal(int, object)
     error = Signal(int, str)
     done = Signal(int)
 
@@ -153,22 +152,16 @@ class SlashToolWorker(QObject):
         self.context.cancel_event = cancel_event
 
     def request_stop(self) -> None:
-        self.cancel_event.set()
-        client = self.context.active_llm_client
-        close_active_request = getattr(client, "close_active_request", None)
-        if callable(close_active_request):
-            close_active_request()
+        self.context.request_stop()
 
     @Slot()
     def run(self) -> None:
         try:
             def emit_progress(kind: str, text: str) -> None:
-                if self.cancel_event.is_set():
-                    raise RuntimeError("Slash tool cancelled.")
+                self.context.check_cancelled()
                 self.progress.emit(self.session_id, kind, text)
 
-            if self.cancel_event.is_set():
-                raise RuntimeError("Slash tool cancelled.")
+            self.context.check_cancelled()
             result = run_slash_command(
                 self.command_text,
                 self.working_folder,
@@ -176,8 +169,8 @@ class SlashToolWorker(QObject):
                 progress=emit_progress,
             )
             if result is None:
-                result = error_result("empty slash command", "/unknown")
-            self.finished.emit(self.session_id, result, self.context)
+                raise RuntimeError("empty slash command")
+            self.finished.emit(self.session_id, result)
         except Exception as exc:
             traceback.print_exc()
             message = "Slash tool cancelled." if self.cancel_event.is_set() else str(exc) or "Unexpected internal error while running slash tool."
@@ -245,7 +238,6 @@ class MainWindow(QMainWindow):
         self._tool_stream_block_start: int | None = None
         self._attached_file_paths: list[str] = []
         self._attachment_folder_roots: dict[str, str] = {}
-        self._slash_tool_context = SlashToolContext()
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -603,7 +595,6 @@ class MainWindow(QMainWindow):
             existing_paths.add(attachment_path)
 
         self._refresh_attachment_list()
-        self._slash_tool_context.reset_for_folder(Path(root))
         if failures:
             QMessageBox.warning(self, 'Attach Folder', '\n'.join(failures))
 
@@ -670,7 +661,6 @@ class MainWindow(QMainWindow):
         if display_user_text.startswith("/") and self._handle_slash_tool_command(display_user_text):
             self.input_edit.clear()
             return
-
         settings = self._apply_connection_settings()
         if self.app_config.backend != "cli" and not settings.base_url:
             QMessageBox.warning(self, 'Missing Base URL', 'Enter a Base URL before sending a prompt.')
@@ -735,8 +725,10 @@ class MainWindow(QMainWindow):
         if target_session_id in self._active_slash_tools:
             QMessageBox.information(self, 'Send', 'This session already has a slash tool running.')
             return True
-        self._slash_tool_context.llm_settings = self._current_connection_settings()
-        context_snapshot = self._slash_tool_context.copy_for_worker()
+        context = SlashToolContext(
+            llm_settings=self._current_connection_settings(),
+            last_output_getter=self._last_model_or_tool_output,
+        )
         self._append_block('You', display_user_text)
         self.repository.add_message(target_session_id, 'user', display_user_text)
         if self.repository.get_session_title(target_session_id) == DEFAULT_SESSION_TITLE:
@@ -747,7 +739,7 @@ class MainWindow(QMainWindow):
             target_session_id,
             display_user_text,
             self._active_attachment_folder(),
-            context_snapshot,
+            context,
         )
         self._refresh_controls()
         return True
@@ -779,10 +771,11 @@ class MainWindow(QMainWindow):
         thread.finished.connect(self._cleanup_slash_tool_worker)
         thread.start()
         self._set_status('Running slash tool...')
+        initial = f"Running {command_text}\n\n"
+        active.stream_parts.append(initial)
         if self.current_session_id == session_id:
             self._start_tool_stream_block()
-            self._append_tool_stream_text(f"Running {command_text}\n\n")
-        active.stream_parts.append(f"Running {command_text}\n\n")
+            self._append_tool_stream_text(initial)
         self._reload_sessions()
 
     @Slot(int, str, str)
@@ -790,22 +783,16 @@ class MainWindow(QMainWindow):
         active = self._active_slash_tools.get(session_id)
         if active is None or not text:
             return
-        formatted = text if kind == "markdown" else text
+        formatted = text if text.endswith("\n") else text + "\n"
         active.stream_parts.append(formatted)
         if self.current_session_id == session_id:
             self._append_tool_stream_text(formatted)
             if kind == "status":
                 self._set_status(text.strip()[:120] or "Running slash tool...")
 
-    @Slot(int, object, object)
-    def _on_slash_tool_success(
-        self,
-        session_id: int,
-        result: SlashToolResult,
-        updated_context: SlashToolContext,
-    ) -> None:
-        self._slash_tool_context.replace_from(updated_context)
-        self.repository.add_message(session_id, 'tool', result.history_text)
+    @Slot(int, object)
+    def _on_slash_tool_success(self, session_id: int, result: SlashToolResult) -> None:
+        self.repository.add_message(session_id, 'tool', result.history_text or result.text)
         if self.current_session_id == session_id:
             self._append_tool_stream_text("\n" + result.text + "\n\n")
             self._finish_tool_stream_block()
@@ -860,7 +847,6 @@ class MainWindow(QMainWindow):
             self._set_status('Stopping response...')
             generation.console.stop_generation()
             return
-
         slash_tool = self._active_slash_tools.get(self.current_session_id)
         if slash_tool is not None:
             slash_tool.stop_requested = True
@@ -877,7 +863,6 @@ class MainWindow(QMainWindow):
         self._streaming_assistant_started = False
         self._streaming_block_start = None
         self._reasoning_placeholder_start = None
-        self._tool_stream_block_start = None
         self._tool_stream_block_start = None
         thread = QThread()
         console = self._create_generation_console(settings)
@@ -936,6 +921,7 @@ class MainWindow(QMainWindow):
 
         is_visible = self.current_session_id == session_id
         if generation.stop_requested:
+            self.repository.delete_last_message(session_id, role='user')
             if is_visible:
                 self._clear_reasoning_placeholder()
                 self._finish_stream_block()
@@ -973,6 +959,7 @@ class MainWindow(QMainWindow):
 
         is_visible = self.current_session_id == session_id
         if generation.stop_requested:
+            self.repository.delete_last_message(session_id, role='user')
             if is_visible:
                 self._clear_reasoning_placeholder()
                 self._finish_stream_block()
@@ -1118,6 +1105,14 @@ class MainWindow(QMainWindow):
                 return str(message.get('content', '')).strip()
         return ""
 
+    def _last_model_or_tool_output(self) -> str:
+        if self.current_session_id is None:
+            return ""
+        for message in reversed(self.repository.get_messages(self.current_session_id)):
+            if message.get('role') in {'assistant', 'tool'}:
+                return str(message.get('content', '')).strip()
+        return ""
+
     def _attached_filenames(self, paths: list[str] | None = None) -> list[str]:
         source_paths = self._attached_file_paths if paths is None else paths
         return [Path(path).name for path in source_paths]
@@ -1159,7 +1154,6 @@ class MainWindow(QMainWindow):
     def _clear_attached_files(self) -> None:
         self._attached_file_paths.clear()
         self._attachment_folder_roots.clear()
-        self._slash_tool_context.reset_for_folder(None)
         self._refresh_attachment_list()
 
     def _append_block(self, role: str, text: str) -> None:

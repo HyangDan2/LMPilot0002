@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class SlashToolResult:
-    """Structured local tool result with display and compact history text."""
-
     text: str
     tool_name: str
-    saved_files: list[str] = field(default_factory=list)
-    next_actions: list[str] = field(default_factory=list)
+    history_text: str | None = None
 
-    @property
-    def history_text(self) -> str:
-        return self.text.strip()
+    def __post_init__(self) -> None:
+        if self.history_text is None:
+            object.__setattr__(self, "history_text", self.text)
 
 
 def error_result(message: str, tool_name: str = "/unknown") -> SlashToolResult:

@@ -1,10 +1,3 @@
-<<<<<<< HEAD
-# Gemma Console GUI (PySide6 MVP)
-
-A lightweight OOP-based PySide6 desktop GUI for interacting with a local `llama-server`.
-
-Designed for Raspberry Pi / Linux environments with stability-focused output handling.
-=======
 # Generic LLM Communicator(for OpenAI Compatible model)
 
 A lightweight desktop GUI for interacting with a local `llama-server` or
@@ -12,7 +5,6 @@ for connecting to frontier model such as ChatGPT, Gemini, and claude by using AP
 
 Designed for every environment with stability-focused output handling.
 (Please change pexpect to wexpect when you use this application under the windows environment.)
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 
 ---
 
@@ -69,7 +61,7 @@ Designed for every environment with stability-focused output handling.
 
   * The Stop button interrupts the current request and returns the UI to an idle state.
   * The next send should work without restarting the app.
-  * If multiple sessions are generating or running slash tools, Stop applies only to the currently selected session.
+  * If multiple sessions are generating, Stop applies only to the currently selected session.
 
 ---
 
@@ -170,7 +162,7 @@ python run.py --config config.yaml
   .pptx .docx .xlsx .pdf
   ```
 
-  Install the document pipeline dependencies with:
+  Install the document parsing and planning dependencies with:
 
   ```bash
   pip install -r requirements.txt
@@ -185,11 +177,10 @@ python run.py --config config.yaml
   Generated files:
 
   ```text
-  <attached-folder>/llm_result/<document-id>.json
-  <attached-folder>/llm_result/knowledge_map.md
-  <attached-folder>/llm_result/knowledge_map.json
-  <attached-folder>/llm_output/planner_output.json
-  <attached-folder>/llm_output/rendered_report_YYYYMMDD_HHMMSS.pptx
+  <normalized-dir>/<document-id>.json
+  <normalized-dir>/knowledge_map.md
+  <normalized-dir>/knowledge_map.json
+  <output-dir>/planner_output.json
   ```
 
   For terminal usage, settings are loaded from `config.yaml`; set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. Planning is adaptive: the app summarizes the knowledge map in chunks, recursively splits failed chunks into smaller work, retries without JSON response-format enforcement when needed, and can write local fallback summaries for chunks that still fail. Tune `planner_chunk_chars`, `planner_min_chunk_chars`, `planner_max_retries`, `planner_intermediate_max_tokens`, `planner_final_max_tokens` for smaller local backends.
@@ -206,185 +197,59 @@ python run.py --config config.yaml
 
   Plain text files are read as UTF-8 first, with fallback decoding for common local encodings. PDF extraction uses `pypdf`; DOCX extraction uses `python-docx`. Images use `Pillow` for metadata and a local heuristic caption, with OCR attempted through `pytesseract` or the native `tesseract` command when available. Unsupported files in the selected folder are skipped; unreadable supported files show a GUI warning.
 
-* **Document pipeline slash tools**
+* **Local slash tools**
 
-  The prompt box supports local slash tools for the attached folder. Slash tools run before normal chat generation and save artifacts under:
+  The prompt box supports local slash tools for extracting source documents and evaluating one document against another:
 
   ```text
-  <attached-folder>/llm_result/document_pipeline/
+  /extract_file <xlsx|pptx|pdf|docx path>
+  /evaluate_file <standard markdown|file> <target markdown|file> [extra prompt]
+  /use_file <markdown|file> [instruction]
+  /save_last_output
+  /tool_help
   ```
 
-  Main report command:
+  Extracted markdown is saved under:
 
   ```text
-  /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]
+  <attached-folder>/HD2_result/extract_docs/<filename>.md
   ```
 
-<<<<<<< HEAD
-=======
-  Generate a PowerPoint deck from the saved report with:
+  Evaluation reports are saved under:
 
   ```text
-  /render_report_pptx [--output filename.pptx]
+  <attached-folder>/HD2_result/evaluate_file/
   ```
 
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-  Examples:
+  `/use_file` answers from one file and saves the LLM output under:
 
   ```text
-  /summarize_file design_review.pptx
-  /summarize_file test_results.xlsx summarize risks and quantitative results
-  /generate_report summarize all output in this folder
-  /generate_report summarize about project risks
-  /generate_report --no-llm summarize briefly
-  /summarize_file --generate-detail true design_review.pptx
-<<<<<<< HEAD
-=======
-  /render_report_pptx
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
+  <attached-folder>/HD2_result/use_file/
   ```
 
-  For quick inspection of one file, use:
+  `/save_last_output` saves the latest assistant or tool output under:
 
   ```text
-  /summarize_file <path> [--no-llm] [--generate-detail true|false] [--llm-input-chars N] [query...]
+  <attached-folder>/HD2_result/save_last_output/YYMMDD_HHMMSS.md
   ```
 
-  `/summarize_file` extracts only the selected file and saves isolated artifacts under:
+* **Generated artifacts**
+
+  During normal chat, the model can request previously generated artifacts from the attached folder. The app safely executes these requests only under `<attached-folder>/HD2_result/`, then sends the artifact content back to the model for a follow-up answer. Supported tags:
 
   ```text
-  <attached-folder>/llm_result/document_pipeline/file_summaries/<document_id>/
-  ```
-
-<<<<<<< HEAD
-=======
-  Embedded document images extracted during `/summarize_file`, `/extract_docs`, or `/generate_report` are saved under:
-
-  ```text
-  <attached-folder>/llm_result/document_pipeline/assets/<document_id>/
-  ```
-
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-  The generated single-file summary uses three top-level sections:
-
-  ```text
-  Summary
-  Source Details
-  Open Issues and Next Actions
-  ```
-
-  The `Summary` section may use the same detailed engineering subsections as `/generate_report` when evidence supports them.
-  Saved `generated_summary.md` files also place each normal paragraph sentence on its own line.
-
-  Use `--generate-detail true` with `/summarize_file` or `/generate_report` to generate optional LLM summaries for every page, slide, sheet, or file-level item. Detail summaries are batched for speed, but chat progress prints every current detail item as it is processed and completed. The summaries are saved as separate `detail_summaries.json` and `detail_summaries.md` artifacts and are not automatically added to the final report prompt. If no LLM client is configured, the app saves local extractive detail summaries with a fallback reason.
-
-  `/generate_report` runs the complete engineering-report pipeline. You do not need to run `/extract_docs` or `/build_doc_map` first. The command scans the attached folder, reuses unchanged extraction artifacts when possible, then performs document mapping, output planning, representative evidence selection, optional local ranked evidence grouping for large documents, and one final LLM Markdown call. Use `--fresh` to force full re-extraction. Progress updates and per-stage timings stream into the chat while the tool runs; when the configured backend supports streaming, the final Markdown report streams into the Tool block while also being accumulated and saved as `generated_report.md`. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
-
-<<<<<<< HEAD
-  The generated engineering report uses three top-level sections:
-
-  ```text
-  Summary
-  Source Documents
-  Open Issues and Next Actions
-  ```
-
-  The `Summary` section is intentionally grounded in the selected evidence. When evidence supports it, `Summary` may include these subsections:
-
-  ```text
-  What the Document Explicitly Describes
-  Main Methods or Components Explicitly Mentioned
-  Quantitative Values Explicitly Present
-  Explicit Limitations or Constraints
-  Unclear or Not Specified in Selected Evidence
-  ```
-
-  Unsupported categories should be stated as not explicitly present in the selected evidence rather than filled with inferred architecture, risks, or recommendations.
-=======
-  `/render_report_pptx` loads `generated_report.md`, `extracted_documents.json`, and the extracted asset files, builds a deterministic slide plan, and renders a PowerPoint deck. The renderer places matched embedded images on slides when asset captions and image-block evidence overlap with the slide content; otherwise it falls back to text-only slides.
-
-  The generated engineering report uses five top-level sections:
-
-  ```text
-  Summary
-  Key Concepts
-  Open Questions
-  Next Actions
-  Related Documents
-  ```
-
-  The report keeps `Summary` brief, makes `Key Concepts` the dominant engineering-focused section, and aims to cover every important concept supported by the document set. `Open Questions` captures unresolved ambiguities and missing evidence. `Next Actions` lists practical follow-up work suggested by the sources. `Related Documents` ties the report back to the source files.
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-
-  Large documents automatically use local ranked evidence grouping. Chat progress shows whether the run uses `one-shot` or `ranked-groups` mode, raw group count, selected top group count, representative evidence count, and final prompt size. The app does not call the LLM during grouping; the LLM is used only for the final report.
-
-  Saved `generated_report.md` files place each normal paragraph sentence on its own line. Headings, tables, bullets, code fences, and blank lines are preserved.
-
-  Slash tools run in background workers so the GUI stays responsive. A session can run only one slash tool at a time, but other sessions can run their own slash tools while `/generate_report` is active. Stop cancels the currently selected session's running slash tool or normal generation. Document-pipeline artifacts are still saved to shared paths under the attached folder, so simultaneous report commands against the same folder use last-writer-wins files.
-
-  Generated document-pipeline artifacts:
-
-  ```text
-  extracted_documents.json
-  extraction_manifest.json
-<<<<<<< HEAD
-=======
-  assets/<document_id>/<asset_id>.<ext>
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-  document_map.json
-  output_plan.json
-  selected_evidence.json
-  evidence_groups.json
-  selected_evidence_groups.json
-  group_summaries.json
-  recursive_summary_levels.json
-  final_prompt_preview.txt
-  detail_summaries.json
-  detail_summaries.md
-  llm_report_attempts.json
-  generated_report.md
-<<<<<<< HEAD
-=======
-  presentation_plan.json
-  generated_report.pptx
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-  file_summaries/<document_id>/detail_summaries.json
-  file_summaries/<document_id>/detail_summaries.md
-  file_summaries/<document_id>/generated_summary.md
-  ```
-
-  The LLM orchestration sends representative selected evidence and, for large documents, top-ranked evidence groups within `--llm-input-chars`. Lower `--llm-input-chars` for smaller local models.
-
-  During normal chat, the model can request previously generated artifacts from the attached folder. The app safely executes these requests only under `<attached-folder>/llm_result/`, then sends the artifact content back to the model for a follow-up answer. Supported tags:
-
-  ```text
-  [read_output] document_pipeline/generated_report.md [/read_output]
-  [list_outputs] document_pipeline [/list_outputs]
+  [read_output] extract_docs/a.xlsx.md [/read_output]
+  [list_outputs] extract_docs [/list_outputs]
   ```
 
   Qwen-style generated-output aliases are also supported:
 
   ```text
-  [read_file] llm/document_pipeline/generated_report.md [/read_file]
-  [read_file] llm_result/document_pipeline/generated_report.md [/read_file]
+  [read_file] llm/extract_docs/a.xlsx.md [/read_file]
+  [read_file] HD2_result/extract_docs/a.xlsx.md [/read_file]
   ```
 
-  Paths are resolved inside the attached folder and cannot escape `llm_result/`.
-
-  Other useful tools:
-
-  ```text
-  /help
-  /workspace_status
-  /summarize_file <path>
-  /extract_docs
-  /build_doc_map
-  /generate_markdown
-<<<<<<< HEAD
-=======
-  /render_report_pptx
->>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
-  ```
+  Paths are resolved inside the attached folder and cannot escape `HD2_result/`.
 
 * **Markdown export**
 
@@ -406,12 +271,10 @@ The code is consolidated under `src/`; the old top-level `app/` package has been
 src/ingestion          deterministic file scanning and parsers
 src/models             shared parser/planner dataclasses
 src/utils              path, IO, and logging helpers
-src/planner            adaptive PPTX planning pipeline
-src/renderer           deterministic PPTX rendering
+src/planner            adaptive planning pipeline
 src/transform          knowledge-map construction
-src/document_pipeline  extracted-document schema, evidence selection, and report generation
-src/slash_tools        prompt-box local commands
 src/gui                PySide6 GUI, sessions, database, and LLM client
+src/slash_tools        local prompt-box tools
 src/tools              legacy local tools
 ```
 

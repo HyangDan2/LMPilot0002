@@ -14,7 +14,7 @@ class XlsxParser(DocumentParser):
     max_rows = 100
     max_columns = 30
 
-    def parse(self, path: Path) -> ParsedDocument:
+    def parse(self, path: Path, asset_output_dir: Path | None = None) -> ParsedDocument:
         try:
             from openpyxl import load_workbook  # type: ignore[import-not-found]
         except Exception as exc:
@@ -70,4 +70,3 @@ class XlsxParser(DocumentParser):
             if any(values):
                 lines.append("\t".join(values).rstrip())
         return "\n".join(lines).strip()
-

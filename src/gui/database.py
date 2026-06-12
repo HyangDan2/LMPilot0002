@@ -137,6 +137,34 @@ class ChatRepository:
             row = cur.fetchone()
             return int(row["message_count"]) if row is not None else 0
 
+    def delete_last_message(self, session_id: int, role: str | None = None) -> bool:
+        with self._connect() as conn:
+            if role is None:
+                cur = conn.execute(
+                    "SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                    (session_id,),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    SELECT id FROM messages
+                    WHERE session_id = ? AND role = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (session_id, role),
+                )
+            row = cur.fetchone()
+            if row is None:
+                return False
+            conn.execute("DELETE FROM messages WHERE id = ?", (row["id"],))
+            conn.execute(
+                "UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,),
+            )
+            conn.commit()
+            return True
+
     def get_session_summary(self, session_id: int) -> str:
         with self._connect() as conn:
             cur = conn.execute(

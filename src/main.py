@@ -11,15 +11,14 @@ from src.ingestion.scanner import scan_supported_files
 from src.models.schemas import ParsedDocument
 from src.planner.chunked_planner import ChunkedPlannerSettings, create_chunked_presentation_plan
 from src.planner.llm_client import LLMSettings
-from src.renderer.pptx_renderer import PptxRenderer
 from src.transform.knowledge_map import build_knowledge_map, render_knowledge_map_markdown
 from src.utils.io import ensure_dir, save_json, save_text
 from src.utils.logging import get_logger
 
 
 @dataclass(frozen=True)
-class RenderPptxResult:
-    """Artifacts produced by a render_pptx pipeline run."""
+class PlanningPipelineResult:
+    """Artifacts produced by the scan, normalize, and planning pipeline."""
 
     scanned_files: int
     parsed_documents: int
@@ -27,7 +26,6 @@ class RenderPptxResult:
     knowledge_map_md: Path
     knowledge_map_json: Path
     planner_json: Path
-    output_pptx: Path
     parse_errors: list[str]
     planner_summary_json: Path | None = None
     planner_attempts_json: Path | None = None
@@ -35,8 +33,12 @@ class RenderPptxResult:
     planner_fallback_count: int = 0
 
 
-def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxResult:
-    """Run scan, parse, normalize, plan, and deterministic PPTX rendering."""
+def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> PlanningPipelineResult:
+    """Run scan, parse, normalize, and plan generation.
+
+    PPTX rendering has been removed from this harness; the pipeline now stops at
+    the planner JSON artifact.
+    """
 
     goal = user_goal.strip()
     if not goal:
@@ -102,15 +104,13 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> RenderPptxRe
     planner_json = output_dir / "planner_output.json"
     save_json(planner_json, plan.to_dict())
 
-    output_pptx = PptxRenderer().render(plan, output_dir, config.output_filename)
-    return RenderPptxResult(
+    return PlanningPipelineResult(
         scanned_files=len(files),
         parsed_documents=len(documents),
         normalized_files=normalized_files,
         knowledge_map_md=knowledge_map_md,
         knowledge_map_json=knowledge_map_json,
         planner_json=planner_json,
-        output_pptx=output_pptx,
         parse_errors=parse_errors,
         planner_summary_json=planner_result.summary_json,
         planner_attempts_json=planner_result.attempts_json,
@@ -139,9 +139,8 @@ def main() -> int:
         llm_model=args.model,
     )
     result = render_pptx_pipeline(" ".join(args.goal), config)
-    print(f"Created: {result.output_pptx}")
-    print(f"Knowledge map: {result.knowledge_map_md}")
     print(f"Planner JSON: {result.planner_json}")
+    print(f"Knowledge map: {result.knowledge_map_md}")
     if result.parse_errors:
         print(f"Skipped {len(result.parse_errors)} file(s); see console warnings.")
     return 0
