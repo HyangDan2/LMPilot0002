@@ -24,9 +24,17 @@ class FakeReportLLMClient:
             raise AssertionError("generate_report should not request JSON chunk summaries.")
         return (
             "# Engineering Report\n\n"
+<<<<<<< HEAD
             "## Summary\n\n### What the Document Explicitly Describes\n\nRevenue grew by 10% according to `report.pptx / blk_001`. The calculation basis is missing.\n\n"
             "## Source Documents\n\n| Source | Type | Evidence Used |\n|---|---|---:|\n| report.pptx | .pptx | 1 |\n\n"
             "## Open Issues and Next Actions\n\n- Verify the source calculation.\n"
+=======
+            "## Summary\n\nRevenue grew by 10% according to `report.pptx / blk_001`. The calculation basis is missing.\n\n"
+            "## Key Concepts\n\n### Revenue Growth\n\n- Revenue grew by 10% according to `report.pptx / blk_001`.\n\n"
+            "## Open Questions\n\n- What is the calculation basis for the 10% growth figure?\n\n"
+            "## Next Actions\n\n- Verify the source calculation.\n\n"
+            "## Related Documents\n\n- report.pptx: Primary source for the revenue claim.\n"
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         )
 
 
@@ -61,9 +69,15 @@ class GenerateReportOrchestrationTests(unittest.TestCase):
         self.assertEqual(len(client.prompts), 1)
         self.assertTrue(any("summarize about revenue" in prompt for prompt in client.prompts))
         self.assertTrue(any("Selected evidence for citation checks" in prompt for prompt in client.prompts))
+<<<<<<< HEAD
         self.assertTrue(any("Summary, Source Documents, Open Issues and Next Actions" in prompt for prompt in client.prompts))
         self.assertTrue(any("What the Document Explicitly Describes, Main Methods or Components Explicitly Mentioned" in prompt for prompt in client.prompts))
         self.assertTrue(any("Do not infer architecture, databases" in prompt for prompt in client.prompts))
+=======
+        self.assertTrue(any("Summary, Key Concepts, Open Questions, Next Actions, Related Documents" in prompt for prompt in client.prompts))
+        self.assertTrue(any("Key Concepts about 50%" in prompt for prompt in client.prompts))
+        self.assertTrue(any("include every important concept supported by the documents" in prompt for prompt in client.prompts))
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         self.assertTrue(any("Write each sentence on its own line" in prompt for prompt in client.prompts))
 
     def test_generate_report_falls_back_without_llm_client(self) -> None:
@@ -77,10 +91,17 @@ class GenerateReportOrchestrationTests(unittest.TestCase):
         self.assertFalse(result.used_llm)
         self.assertIn("# Engineering Report for Report", result.markdown)
         self.assertIn("## Summary", result.markdown)
+<<<<<<< HEAD
         self.assertIn("### What the Document Explicitly Describes", result.markdown)
         self.assertIn("### Unclear or Not Specified in Selected Evidence", result.markdown)
         self.assertIn("## Source Documents", result.markdown)
         self.assertIn("## Open Issues and Next Actions", result.markdown)
+=======
+        self.assertIn("## Key Concepts", result.markdown)
+        self.assertIn("## Open Questions", result.markdown)
+        self.assertIn("## Next Actions", result.markdown)
+        self.assertIn("## Related Documents", result.markdown)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         self.assertIn("LLM client is not configured", result.fallback_reason)
 
     def test_generate_report_streams_final_markdown_when_client_supports_it(self) -> None:

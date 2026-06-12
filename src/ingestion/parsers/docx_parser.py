@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+<<<<<<< HEAD
 from pathlib import Path
 
 from src.ingestion.parsers.base import DocumentParser, ParserError
@@ -12,6 +13,30 @@ class DocxParser(DocumentParser):
     file_type = "docx"
 
     def parse(self, path: Path) -> ParsedDocument:
+=======
+import zipfile
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+from src.ingestion.parsers.base import DocumentParser, ParserError
+from src.ingestion.parsers.asset_utils import guess_mime_type, resolve_ooxml_target, write_asset_file
+from src.models.schemas import ParsedDocument, Section
+from src.models.schemas import Asset
+
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PACKAGE_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+
+class DocxParser(DocumentParser):
+    """DOCX parser using paragraph extraction plus embedded media extraction."""
+
+    file_type = "docx"
+
+    def parse(self, path: Path, asset_output_dir: Path | None = None) -> ParsedDocument:
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         try:
             from docx import Document  # type: ignore[import-not-found]
         except Exception as exc:
@@ -24,6 +49,10 @@ class DocxParser(DocumentParser):
 
         doc_id = self.doc_id(path)
         title = self.title_from_path(path)
+<<<<<<< HEAD
+=======
+        assets = _extract_embedded_images(path, doc_id, asset_output_dir)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         sections: list[Section] = []
         current_title = title
         current_level = 1
@@ -71,7 +100,11 @@ class DocxParser(DocumentParser):
             title=title,
             text=body,
             sections=sections,
+<<<<<<< HEAD
             assets=[],
+=======
+            assets=assets,
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
             metadata={"paragraph_count": len(document.paragraphs)},
         )
 
@@ -85,3 +118,84 @@ def _heading_level(style_name: str) -> int | None:
         return max(1, int(parts[-1]))
     return 1
 
+<<<<<<< HEAD
+=======
+
+def _extract_embedded_images(path: Path, doc_id: str, asset_output_dir: Path | None) -> list[Asset]:
+    try:
+        archive = zipfile.ZipFile(path)
+    except Exception as exc:
+        raise ParserError(f"Failed to inspect embedded DOCX assets in {path}: {exc}") from exc
+
+    with archive:
+        media_parts = {
+            name: archive.read(name)
+            for name in archive.namelist()
+            if name.startswith("word/media/") and not name.endswith("/")
+        }
+        document_part = "word/document.xml"
+        rels_part = "word/_rels/document.xml.rels"
+        if document_part not in archive.namelist():
+            return []
+        rels = _read_relationships(archive, rels_part, document_part)
+        root = ET.fromstring(archive.read(document_part))
+        assets: list[Asset] = []
+        for image_index, drawing in enumerate(root.findall(f".//{{{W_NS}}}drawing"), start=1):
+            blip = drawing.find(f".//{{{A_NS}}}blip")
+            if blip is None:
+                continue
+            embed = blip.attrib.get(f"{{{R_NS}}}embed", "")
+            target = rels.get(embed, "")
+            data = media_parts.get(target)
+            if not data:
+                continue
+            doc_pr = drawing.find(f".//{{{WP_NS}}}docPr")
+            extent = drawing.find(f".//{{{WP_NS}}}extent")
+            asset_id = f"{doc_id}-image-{image_index:04d}"
+            source_name = Path(target).name or f"image-{image_index}.bin"
+            stored_path, sha256 = write_asset_file(asset_output_dir, doc_id, asset_id, source_name, data)
+            assets.append(
+                Asset(
+                    asset_id=asset_id,
+                    kind="image",
+                    source_file=str(path.resolve()),
+                    page_or_slide=None,
+                    path=stored_path,
+                    caption=(doc_pr.attrib.get("descr", "") if doc_pr is not None else "") or (
+                        doc_pr.attrib.get("name", "") if doc_pr is not None else ""
+                    ),
+                    mime_type=guess_mime_type(source_name),
+                    sha256=sha256,
+                    width=_optional_int(extent.attrib.get("cx") if extent is not None else None),
+                    height=_optional_int(extent.attrib.get("cy") if extent is not None else None),
+                    metadata={
+                        "relationship_id": embed,
+                        "package_path": target,
+                        "shape_name": doc_pr.attrib.get("name", "") if doc_pr is not None else "",
+                    },
+                )
+            )
+        return assets
+
+
+def _read_relationships(archive: zipfile.ZipFile, rels_part: str, base_part: str) -> dict[str, str]:
+    if rels_part not in archive.namelist():
+        return {}
+    root = ET.fromstring(archive.read(rels_part))
+    rels: dict[str, str] = {}
+    for rel in root.findall(f".//{{{PACKAGE_NS}}}Relationship"):
+        rel_id = rel.attrib.get("Id", "")
+        target = rel.attrib.get("Target", "")
+        if rel_id and target:
+            rels[rel_id] = resolve_ooxml_target(base_part, target)
+    return rels
+
+
+def _optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3

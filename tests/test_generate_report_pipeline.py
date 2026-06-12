@@ -23,11 +23,21 @@ class GenerateReportPipelineTests(unittest.TestCase):
             self.assertTrue(selected_evidence_path.exists())
             plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
             self.assertEqual(plan_payload["goal"], "Demo report")
+<<<<<<< HEAD
             self.assertEqual(plan_payload["sections"][0]["max_chars"], 20480)
             self.assertEqual(plan_payload["sections"][1]["max_chars"], 200)
             self.assertEqual(plan_payload["sections"][2]["max_chars"], 200)
             self.assertIn("# Engineering Report", report_path.read_text(encoding="utf-8"))
             self.assertIn("### What the Document Explicitly Describes", report_path.read_text(encoding="utf-8"))
+=======
+            self.assertEqual(plan_payload["sections"][0]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][1]["max_chars"], 6000)
+            self.assertEqual(plan_payload["sections"][2]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][3]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][4]["max_chars"], 800)
+            self.assertIn("# Engineering Report", report_path.read_text(encoding="utf-8"))
+            self.assertIn("## Key Concepts", report_path.read_text(encoding="utf-8"))
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
             self.assertIn(plan_path.resolve(), result.saved_files)
             self.assertIn(report_path.resolve(), result.saved_files)
             self.assertTrue(any("[1/8] Extracting documents" in text for _, text in events))

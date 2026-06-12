@@ -18,11 +18,19 @@ class SlashDocumentToolsTests(unittest.TestCase):
         self.assertIn("/workspace_status", result.text)
         self.assertIn("/generate_markdown", result.text)
         self.assertIn("/generate_report", result.text)
+<<<<<<< HEAD
+=======
+        self.assertIn("/render_report_pptx", result.text)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         self.assertIn("/summarize_file", result.text)
         self.assertIn("llm_result/document_pipeline/extracted_documents.json", result.text)
         self.assertIn("selected_evidence.json", result.text)
         self.assertIn("detail_summaries.json", result.text)
+<<<<<<< HEAD
         self.assertIn("What the Document Explicitly Describes", result.text)
+=======
+        self.assertIn("Summary, Key Concepts, Open Questions, Next Actions, and Related Documents", result.text)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         self.assertIn("file_summaries", result.text)
         self.assertNotIn("llm_chunk_summaries.json", result.text)
 
@@ -138,12 +146,23 @@ class SlashDocumentToolsTests(unittest.TestCase):
             self.assertEqual(json.loads(plan_path.read_text(encoding="utf-8"))["goal"], "summarize about demo summary")
             self.assertEqual(
                 [section["title"] for section in json.loads(plan_path.read_text(encoding="utf-8"))["sections"]],
+<<<<<<< HEAD
                 ["Summary", "Source Documents", "Open Issues and Next Actions"],
             )
             plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
             self.assertEqual(plan_payload["sections"][0]["max_chars"], 20480)
             self.assertEqual(plan_payload["sections"][1]["max_chars"], 200)
             self.assertEqual(plan_payload["sections"][2]["max_chars"], 200)
+=======
+                ["Summary", "Key Concepts", "Open Questions", "Next Actions", "Related Documents"],
+            )
+            plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+            self.assertEqual(plan_payload["sections"][0]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][1]["max_chars"], 6000)
+            self.assertEqual(plan_payload["sections"][2]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][3]["max_chars"], 1200)
+            self.assertEqual(plan_payload["sections"][4]["max_chars"], 800)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
             self.assertIsNotNone(context.doc_map)
 
         assert result is not None

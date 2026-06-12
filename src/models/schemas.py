@@ -14,6 +14,13 @@ class Asset:
     page_or_slide: int | str | None = None
     path: str = ""
     caption: str = ""
+<<<<<<< HEAD
+=======
+    mime_type: str = ""
+    sha256: str = ""
+    width: int | None = None
+    height: int | None = None
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,6 +73,12 @@ class SlidePlan:
     purpose: str
     source_refs: list[str] = field(default_factory=list)
     image_refs: list[str] = field(default_factory=list)
+<<<<<<< HEAD
+=======
+    bullet_points: list[str] = field(default_factory=list)
+    image_path: str = ""
+    image_caption: str = ""
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -84,4 +97,7 @@ class PresentationPlan:
         payload = asdict(self)
         payload["slides"] = [slide.to_dict() for slide in self.slides]
         return payload
+<<<<<<< HEAD
 
+=======
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3

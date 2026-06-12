@@ -1,8 +1,18 @@
+<<<<<<< HEAD
 # Gemma Console GUI (PySide6 MVP)
 
 A lightweight OOP-based PySide6 desktop GUI for interacting with a local `llama-server`.
 
 Designed for Raspberry Pi / Linux environments with stability-focused output handling.
+=======
+# Generic LLM Communicator(for OpenAI Compatible model)
+
+A lightweight desktop GUI for interacting with a local `llama-server` or
+for connecting to frontier model such as ChatGPT, Gemini, and claude by using API-key.
+
+Designed for every environment with stability-focused output handling.
+(Please change pexpect to wexpect when you use this application under the windows environment.)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 
 ---
 
@@ -210,6 +220,15 @@ python run.py --config config.yaml
   /generate_report [--no-llm] [--fresh] [--generate-detail true|false] [--llm-input-chars N] [query...]
   ```
 
+<<<<<<< HEAD
+=======
+  Generate a PowerPoint deck from the saved report with:
+
+  ```text
+  /render_report_pptx [--output filename.pptx]
+  ```
+
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
   Examples:
 
   ```text
@@ -219,6 +238,10 @@ python run.py --config config.yaml
   /generate_report summarize about project risks
   /generate_report --no-llm summarize briefly
   /summarize_file --generate-detail true design_review.pptx
+<<<<<<< HEAD
+=======
+  /render_report_pptx
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
   ```
 
   For quick inspection of one file, use:
@@ -233,6 +256,15 @@ python run.py --config config.yaml
   <attached-folder>/llm_result/document_pipeline/file_summaries/<document_id>/
   ```
 
+<<<<<<< HEAD
+=======
+  Embedded document images extracted during `/summarize_file`, `/extract_docs`, or `/generate_report` are saved under:
+
+  ```text
+  <attached-folder>/llm_result/document_pipeline/assets/<document_id>/
+  ```
+
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
   The generated single-file summary uses three top-level sections:
 
   ```text
@@ -248,6 +280,7 @@ python run.py --config config.yaml
 
   `/generate_report` runs the complete engineering-report pipeline. You do not need to run `/extract_docs` or `/build_doc_map` first. The command scans the attached folder, reuses unchanged extraction artifacts when possible, then performs document mapping, output planning, representative evidence selection, optional local ranked evidence grouping for large documents, and one final LLM Markdown call. Use `--fresh` to force full re-extraction. Progress updates and per-stage timings stream into the chat while the tool runs; when the configured backend supports streaming, the final Markdown report streams into the Tool block while also being accumulated and saved as `generated_report.md`. The free-form text after the command becomes the report query/focus. If the configured LLM is unavailable, the command saves a deterministic fallback Markdown report instead of failing the whole pipeline.
 
+<<<<<<< HEAD
   The generated engineering report uses three top-level sections:
 
   ```text
@@ -267,6 +300,21 @@ python run.py --config config.yaml
   ```
 
   Unsupported categories should be stated as not explicitly present in the selected evidence rather than filled with inferred architecture, risks, or recommendations.
+=======
+  `/render_report_pptx` loads `generated_report.md`, `extracted_documents.json`, and the extracted asset files, builds a deterministic slide plan, and renders a PowerPoint deck. The renderer places matched embedded images on slides when asset captions and image-block evidence overlap with the slide content; otherwise it falls back to text-only slides.
+
+  The generated engineering report uses five top-level sections:
+
+  ```text
+  Summary
+  Key Concepts
+  Open Questions
+  Next Actions
+  Related Documents
+  ```
+
+  The report keeps `Summary` brief, makes `Key Concepts` the dominant engineering-focused section, and aims to cover every important concept supported by the document set. `Open Questions` captures unresolved ambiguities and missing evidence. `Next Actions` lists practical follow-up work suggested by the sources. `Related Documents` ties the report back to the source files.
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 
   Large documents automatically use local ranked evidence grouping. Chat progress shows whether the run uses `one-shot` or `ranked-groups` mode, raw group count, selected top group count, representative evidence count, and final prompt size. The app does not call the LLM during grouping; the LLM is used only for the final report.
 
@@ -279,6 +327,10 @@ python run.py --config config.yaml
   ```text
   extracted_documents.json
   extraction_manifest.json
+<<<<<<< HEAD
+=======
+  assets/<document_id>/<asset_id>.<ext>
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
   document_map.json
   output_plan.json
   selected_evidence.json
@@ -291,6 +343,11 @@ python run.py --config config.yaml
   detail_summaries.md
   llm_report_attempts.json
   generated_report.md
+<<<<<<< HEAD
+=======
+  presentation_plan.json
+  generated_report.pptx
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
   file_summaries/<document_id>/detail_summaries.json
   file_summaries/<document_id>/detail_summaries.md
   file_summaries/<document_id>/generated_summary.md
@@ -323,6 +380,10 @@ python run.py --config config.yaml
   /extract_docs
   /build_doc_map
   /generate_markdown
+<<<<<<< HEAD
+=======
+  /render_report_pptx
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
   ```
 
 * **Markdown export**

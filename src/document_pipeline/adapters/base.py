@@ -31,8 +31,13 @@ class LegacyParserAdapter:
 
     supported_extensions = {".pptx", ".docx", ".xlsx", ".pdf"}
 
+<<<<<<< HEAD
     def parse(self, path: Path) -> ParsedDocument:
         return parse_document(path)
+=======
+    def parse(self, path: Path, asset_output_dir: Path | None = None) -> ParsedDocument:
+        return parse_document(path, asset_output_dir=asset_output_dir)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 
     def extract_metadata(self, path: Path, parsed: ParsedDocument | None = None) -> DocumentMetadata:
         parsed = parsed or self.parse(path)
@@ -85,6 +90,7 @@ class LegacyParserAdapter:
                 )
             )
             order += 1
+<<<<<<< HEAD
         return blocks
 
     def extract_assets(self, path: Path, document_id: str, parsed: ParsedDocument) -> list[AssetRef]:
@@ -104,9 +110,93 @@ class LegacyParserAdapter:
             )
             for asset in parsed.assets
         ]
+=======
+        for index, asset in enumerate(parsed.assets, start=1):
+            text = _asset_block_text(asset)
+            if not text:
+                continue
+            page, slide = _page_and_slide(asset.page_or_slide, path.suffix.lower())
+            blocks.append(
+                ExtractedBlock(
+                    block_id=f"{document_id}_asset_{index:04d}",
+                    document_id=document_id,
+                    type="image",
+                    role="image_asset",
+                    order=order,
+                    text=text,
+                    normalized_text=normalize_text(text),
+                    asset_ids=[asset.asset_id],
+                    provenance=file_provenance(path, page=page, slide=slide),
+                    metadata={
+                        "asset_id": asset.asset_id,
+                        "caption": asset.caption,
+                        "stored_path": asset.path,
+                        "mime_type": asset.mime_type,
+                        "width": asset.width,
+                        "height": asset.height,
+                        **asset.metadata,
+                    },
+                )
+            )
+            order += 1
+        return blocks
+
+    def extract_assets(self, path: Path, document_id: str, parsed: ParsedDocument) -> list[AssetRef]:
+        refs: list[AssetRef] = []
+        for asset in parsed.assets:
+            page, slide = _page_and_slide(asset.page_or_slide, path.suffix.lower())
+            refs.append(
+                AssetRef(
+                    asset_id=asset.asset_id,
+                    document_id=document_id,
+                    type=asset.kind,
+                    source_path=asset.source_file,
+                    stored_path=asset.path,
+                    mime_type=asset.mime_type,
+                    sha256=asset.sha256,
+                    width=asset.width,
+                    height=asset.height,
+                    caption=asset.caption,
+                    provenance=file_provenance(path, page=page, slide=slide),
+                    metadata={
+                        "page_or_slide": asset.page_or_slide,
+                        **asset.metadata,
+                    },
+                )
+            )
+        return refs
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 
 
 def _optional_int(value: object) -> int | None:
     if isinstance(value, int):
         return value
     return None
+<<<<<<< HEAD
+=======
+
+
+def _asset_block_text(asset) -> str:
+    parts = ["Embedded image artifact extracted from the source document."]
+    if asset.page_or_slide is not None:
+        parts.append(f"Location: {asset.page_or_slide}.")
+    if asset.caption:
+        parts.append(f"Caption or shape name: {asset.caption}.")
+    if asset.mime_type:
+        parts.append(f"MIME type: {asset.mime_type}.")
+    if asset.width is not None and asset.height is not None:
+        parts.append(f"Dimensions: {asset.width} x {asset.height}.")
+    if asset.path:
+        parts.append(f"Extracted file: {Path(asset.path).name}.")
+    return " ".join(part.strip() for part in parts if part.strip())
+
+
+def _page_and_slide(page_or_slide: int | str | None, suffix: str) -> tuple[int | None, int | None]:
+    if not isinstance(page_or_slide, int):
+        return None, None
+    if suffix == ".pdf":
+        return page_or_slide, None
+    if suffix == ".pptx":
+        return None, page_or_slide
+    return None, None
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3

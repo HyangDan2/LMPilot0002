@@ -16,3 +16,10 @@ openai_settings.json
 /build/
 *.egg-info/
 document_pipeline_update_progress.md
+<<<<<<< HEAD
+=======
+.env
+*.key
+secrets.json
+
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3

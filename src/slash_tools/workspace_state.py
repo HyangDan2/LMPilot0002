@@ -12,6 +12,10 @@ class WorkspaceState:
     working_folder: str
     extracted_documents_path: str | None = None
     extraction_manifest_path: str | None = None
+<<<<<<< HEAD
+=======
+    assets_path: str | None = None
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
     document_map_path: str | None = None
     output_plan_path: str | None = None
     selected_evidence_path: str | None = None
@@ -24,8 +28,16 @@ class WorkspaceState:
     detail_summaries_markdown_path: str | None = None
     report_attempts_path: str | None = None
     generated_markdown_path: str | None = None
+<<<<<<< HEAD
     file_summaries_path: str | None = None
     document_count: int = 0
+=======
+    presentation_plan_path: str | None = None
+    generated_pptx_path: str | None = None
+    file_summaries_path: str | None = None
+    document_count: int = 0
+    asset_document_count: int = 0
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
     file_summary_count: int = 0
     next_actions: list[str] = field(default_factory=list)
 
@@ -39,6 +51,10 @@ class WorkspaceState:
             "Artifacts:",
             f"- extracted_documents.json: {_found(self.extracted_documents_path, self.document_count, 'document(s)')}",
             f"- extraction_manifest.json: {_found(self.extraction_manifest_path)}",
+<<<<<<< HEAD
+=======
+            f"- assets/: {_found(self.assets_path, self.asset_document_count, 'document folder(s)')}",
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
             f"- document_map.json: {_found(self.document_map_path)}",
             f"- output_plan.json: {_found(self.output_plan_path)}",
             f"- selected_evidence.json: {_found(self.selected_evidence_path)}",
@@ -51,6 +67,11 @@ class WorkspaceState:
             f"- detail_summaries.md: {_found(self.detail_summaries_markdown_path)}",
             f"- llm_report_attempts.json: {_found(self.report_attempts_path)}",
             f"- generated_report.md: {_found(self.generated_markdown_path)}",
+<<<<<<< HEAD
+=======
+            f"- presentation_plan.json: {_found(self.presentation_plan_path)}",
+            f"- generated_report.pptx: {_found(self.generated_pptx_path)}",
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
             f"- file_summaries/: {_found(self.file_summaries_path, self.file_summary_count, 'summary folder(s)')}",
         ]
         if self.next_actions:
@@ -64,6 +85,10 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     output_dir = pipeline_output_dir(root)
     extracted_path = output_dir / "extracted_documents.json"
     manifest_path = output_dir / "extraction_manifest.json"
+<<<<<<< HEAD
+=======
+    assets_path = output_dir / "assets"
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
     doc_map_path = output_dir / "document_map.json"
     output_plan_path = output_dir / "output_plan.json"
     selected_evidence_path = output_dir / "selected_evidence.json"
@@ -76,8 +101,16 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
     detail_summaries_markdown_path = output_dir / "detail_summaries.md"
     attempts_path = output_dir / "llm_report_attempts.json"
     report_path = output_dir / "generated_report.md"
+<<<<<<< HEAD
     file_summaries_path = output_dir / "file_summaries"
     document_count = _document_count(extracted_path)
+=======
+    presentation_plan_path = output_dir / "presentation_plan.json"
+    generated_pptx_path = output_dir / "generated_report.pptx"
+    file_summaries_path = output_dir / "file_summaries"
+    document_count = _document_count(extracted_path)
+    asset_document_count = _child_dir_count(assets_path)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
     file_summary_count = _file_summary_count(file_summaries_path)
     next_actions = _next_actions(
         has_documents=extracted_path.exists() and document_count > 0,
@@ -89,6 +122,10 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         working_folder=str(root),
         extracted_documents_path=_path_if_exists(extracted_path, root),
         extraction_manifest_path=_path_if_exists(manifest_path, root),
+<<<<<<< HEAD
+=======
+        assets_path=_path_if_exists(assets_path, root),
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         document_map_path=_path_if_exists(doc_map_path, root),
         output_plan_path=_path_if_exists(output_plan_path, root),
         selected_evidence_path=_path_if_exists(selected_evidence_path, root),
@@ -101,8 +138,16 @@ def load_workspace_state(working_folder: Path) -> WorkspaceState:
         detail_summaries_markdown_path=_path_if_exists(detail_summaries_markdown_path, root),
         report_attempts_path=_path_if_exists(attempts_path, root),
         generated_markdown_path=_path_if_exists(report_path, root),
+<<<<<<< HEAD
         file_summaries_path=_path_if_exists(file_summaries_path, root),
         document_count=document_count,
+=======
+        presentation_plan_path=_path_if_exists(presentation_plan_path, root),
+        generated_pptx_path=_path_if_exists(generated_pptx_path, root),
+        file_summaries_path=_path_if_exists(file_summaries_path, root),
+        document_count=document_count,
+        asset_document_count=asset_document_count,
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
         file_summary_count=file_summary_count,
         next_actions=next_actions,
     )
@@ -129,6 +174,13 @@ def _document_count(path: Path) -> int:
 
 
 def _file_summary_count(path: Path) -> int:
+<<<<<<< HEAD
+=======
+    return _child_dir_count(path)
+
+
+def _child_dir_count(path: Path) -> int:
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
     if not path.is_dir():
         return 0
     return sum(1 for child in path.iterdir() if child.is_dir())
@@ -146,7 +198,11 @@ def _next_actions(
         return ["/generate_report summarize all output in this folder", "/build_doc_map"]
     if not has_output_plan or not has_report:
         return ["/generate_report summarize all output in this folder"]
+<<<<<<< HEAD
     return ["Ask a normal question about the generated report", "Re-run /extract_docs if source files changed"]
+=======
+    return ["/render_report_pptx", "Ask a normal question about the generated report"]
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 
 
 def _found(path: str | None, count: int | None = None, unit: str = "") -> str:

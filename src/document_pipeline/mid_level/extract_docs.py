@@ -26,7 +26,12 @@ def extract_single_doc(path: Path, context: ExtractionContext) -> ExtractedDocum
     payload = read_file_bytes(path)
     detected = detect_file_type(path)
     adapter = LegacyParserAdapter()
+<<<<<<< HEAD
     parsed = adapter.parse(payload.path)
+=======
+    asset_output_dir = context.asset_output_dir or _default_asset_output_dir(context.working_folder)
+    parsed = adapter.parse(payload.path, asset_output_dir=asset_output_dir)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
     document_id = stable_doc_id(payload.path)
     source = SourceInfo(
         path=str(payload.path),
@@ -54,3 +59,10 @@ def extract_docs(working_folder: Path, context: ExtractionContext | None = None)
     context = context or ExtractionContext(working_folder=working_folder)
     files = scan_supported_files(working_folder)
     return [extract_single_doc(path, context) for path in files]
+<<<<<<< HEAD
+=======
+
+
+def _default_asset_output_dir(working_folder: Path) -> Path:
+    return working_folder.expanduser().resolve() / "llm_result" / "document_pipeline" / "assets"
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3

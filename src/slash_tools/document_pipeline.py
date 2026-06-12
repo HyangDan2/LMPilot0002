@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+<<<<<<< HEAD
 from src.document_pipeline.high_level import generate_markdown_report, generate_report_pipeline, summarize_file_pipeline
+=======
+from src.document_pipeline.high_level import (
+    generate_markdown_report,
+    generate_report_pipeline,
+    render_report_pptx_pipeline,
+    summarize_file_pipeline,
+)
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 from src.document_pipeline.low_level import detect_file_type, normalize_text, read_file_bytes
 from src.document_pipeline.mid_level import ExtractionContext, build_doc_map
 from src.document_pipeline.mid_level import extract_docs as extract_docs_mid_level
@@ -256,6 +265,34 @@ def generate_report_command(
     )
 
 
+<<<<<<< HEAD
+=======
+def render_report_pptx_command(
+    args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
+) -> SlashToolResult:
+    root = require_working_folder(working_folder)
+    output_filename = _parse_render_report_pptx_args(args)
+    result = render_report_pptx_pipeline(root, output_filename=output_filename)
+    saved_files = [_relative_to_root(path, root) for path in result.saved_files]
+    return _result(
+        "/render_report_pptx",
+        "\n".join(
+            [
+                "Rendered report PPTX.",
+                "",
+                f"- markdown: {_relative_to_root(result.markdown_path, root)}",
+                f"- slide_count: {result.slide_count}",
+                f"- slides_with_images: {result.image_slide_count}",
+                f"- plan: {_relative_to_root(result.plan_path, root)}",
+                f"- output: {_relative_to_root(result.output_pptx, root)}",
+            ]
+        ),
+        saved_files=saved_files,
+        next_actions=["/workspace_status", "Ask a normal question about the generated PPTX"],
+    )
+
+
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 def summarize_file_command(
     args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None
 ) -> SlashToolResult:
@@ -413,6 +450,24 @@ def _parse_summarize_file_args(args: list[str]) -> tuple[str, str, int, bool, bo
     return file_arg, goal, llm_input_chars, use_llm, generate_detail
 
 
+<<<<<<< HEAD
+=======
+def _parse_render_report_pptx_args(args: list[str]) -> str | None:
+    output_filename: str | None = None
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--output":
+            if index + 1 >= len(args):
+                raise SlashToolError("Usage: /render_report_pptx [--output filename.pptx]")
+            output_filename = args[index + 1].strip()
+            index += 2
+            continue
+        raise SlashToolError("Usage: /render_report_pptx [--output filename.pptx]")
+    return output_filename
+
+
+>>>>>>> 4b1f4179239ca3b0466426fe629135dfeba590a3
 def _parse_bool_option(option: str, value: str) -> bool:
     normalized = value.strip().lower()
     if normalized in {"1", "true", "yes", "on"}:
