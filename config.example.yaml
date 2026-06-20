@@ -20,7 +20,7 @@ planner_final_max_tokens: 2048
 planner_allow_response_format_retry: true
 planner_enable_local_fallback: true
 db_path: "./data/app.db"
-window_title: "LLM Communicator(OpenAI Compatible)"
+window_title: "HD2 LLM Communicator(OpenAI Compatible)"
 window_width: 1000
 window_height: 720
 response_token_reserve: 256

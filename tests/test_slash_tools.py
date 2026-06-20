@@ -12,7 +12,7 @@ class FakeEvaluationClient:
     def __init__(self) -> None:
         self.messages: list[list[dict]] = []
         self.closed = False
-        self.response = "## 요약\n\n대체로 통과입니다."
+        self.response = "## Summary\n\nMostly passes."
 
     def chat_completion(self, messages: list[dict], response_format: dict | None = None) -> str:
         self.messages.append(messages)
@@ -60,7 +60,7 @@ class SlashToolsTests(unittest.TestCase):
             client = FakeEvaluationClient()
 
             result = run_slash_command(
-                "/evaluate_file a.xlsx b.xlsx 확인하라",
+                "/evaluate_file a.xlsx b.xlsx Check this.",
                 root,
                 SlashToolContext(llm_client=client),
             )
@@ -70,19 +70,19 @@ class SlashToolsTests(unittest.TestCase):
             self.assertTrue((root / "HD2_result" / "extract_docs" / "b.xlsx.md").exists())
             report = root / "HD2_result" / "evaluate_file" / "a.xlsx__vs__b.xlsx.md"
             self.assertTrue(report.exists())
-            self.assertIn("대체로 통과", report.read_text(encoding="utf-8"))
+            self.assertIn("Mostly passes", report.read_text(encoding="utf-8"))
             self.assertEqual(len(client.messages), 1)
-            self.assertIn("확인하라", client.messages[0][0]["content"])
+            self.assertIn("Check this.", client.messages[0][0]["content"])
             self.assertIn("Must include launch plan", client.messages[0][1]["content"])
             self.assertIn("Launch plan included", client.messages[0][1]["content"])
 
     def test_evaluate_file_normalizes_html_line_breaks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / "standard.md").write_text("# 기준", encoding="utf-8")
-            (root / "target.md").write_text("# 대상", encoding="utf-8")
+            (root / "standard.md").write_text("# Standard", encoding="utf-8")
+            (root / "target.md").write_text("# Target", encoding="utf-8")
             client = FakeEvaluationClient()
-            client.response = "첫 줄<br>둘째 줄<br/>셋째 줄<br />넷째 줄"
+            client.response = "first line<br>second line<br/>third line<br />fourth line"
 
             result = run_slash_command(
                 "/evaluate_file standard.md target.md",
@@ -95,8 +95,8 @@ class SlashToolsTests(unittest.TestCase):
             report_text = report.read_text(encoding="utf-8")
             self.assertNotIn("<br", result.text.lower())
             self.assertNotIn("<br", report_text.lower())
-            self.assertIn("첫 줄\n둘째 줄\n셋째 줄\n넷째 줄", result.text)
-            self.assertIn("첫 줄\n둘째 줄\n셋째 줄\n넷째 줄", report_text)
+            self.assertIn("first line\nsecond line\nthird line\nfourth line", result.text)
+            self.assertIn("first line\nsecond line\nthird line\nfourth line", report_text)
 
     def test_evaluate_file_uses_default_prompt_when_instruction_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -112,14 +112,14 @@ class SlashToolsTests(unittest.TestCase):
             )
 
             assert result is not None
-            self.assertIn("a.xlsx의 기준으로 b.xlsx의 파일의 내용을 평가하라", client.messages[0][0]["content"])
+            self.assertIn("Evaluate the content of b.xlsx using a.xlsx as the standard.", client.messages[0][0]["content"])
 
     def test_evaluate_file_uses_prompt_config_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as prompt_temp:
             root = Path(temp_dir)
             prompt_dir = Path(prompt_temp)
             (prompt_dir / "evaluate_file.md").write_text(
-                "커스텀 평가 프롬프트\n기준={{standard_name}}\n대상={{target_name}}\n지시={{instruction}}",
+                "Custom evaluation prompt\nstandard={{standard_name}}\ntarget={{target_name}}\ninstruction={{instruction}}",
                 encoding="utf-8",
             )
             _write_workbook(root / "a.xlsx", [["Criterion"], ["Must include launch plan"]])
@@ -128,16 +128,16 @@ class SlashToolsTests(unittest.TestCase):
 
             with patch("src.slash_tools.prompt_loader.DEFAULT_PROMPT_DIR", prompt_dir):
                 result = run_slash_command(
-                    "/evaluate_file a.xlsx b.xlsx 확인하라",
+                    "/evaluate_file a.xlsx b.xlsx Check this.",
                     root,
                     SlashToolContext(llm_client=client),
                 )
 
             assert result is not None
-            self.assertIn("커스텀 평가 프롬프트", client.messages[0][0]["content"])
-            self.assertIn("기준=a.xlsx", client.messages[0][0]["content"])
-            self.assertIn("대상=b.xlsx", client.messages[0][0]["content"])
-            self.assertIn("지시=확인하라", client.messages[0][0]["content"])
+            self.assertIn("Custom evaluation prompt", client.messages[0][0]["content"])
+            self.assertIn("standard=a.xlsx", client.messages[0][0]["content"])
+            self.assertIn("target=b.xlsx", client.messages[0][0]["content"])
+            self.assertIn("instruction=Check this.", client.messages[0][0]["content"])
 
     def test_evaluate_file_mock_test_creates_files_and_runs_evaluation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -153,17 +153,17 @@ class SlashToolsTests(unittest.TestCase):
             self.assertTrue(evaluation.exists())
             standard_text = standard.read_text(encoding="utf-8")
             evaluation_text = evaluation.read_text(encoding="utf-8")
-            criteria_rows = [line for line in standard_text.splitlines() if line.startswith("| ") and "문서에 " in line]
+            criteria_rows = [line for line in standard_text.splitlines() if line.startswith("| ") and "Does the document" in line]
             self.assertEqual(len(criteria_rows), 10)
-            self.assertIn("정량적 성능 결과", evaluation_text)
-            self.assertIn("운영 및 배포 절차", evaluation_text)
-            self.assertNotIn("보안 고려사항", evaluation_text)
-            self.assertNotIn("장애 대응", evaluation_text)
+            self.assertIn("Quantitative Performance Results", evaluation_text)
+            self.assertIn("Operations and Deployment Procedures", evaluation_text)
+            self.assertNotIn("Security Considerations", evaluation_text)
+            self.assertNotIn("Incident Response", evaluation_text)
             self.assertEqual(len(client.messages), 1)
-            self.assertIn("Mock_Standard.md의 기준으로 Mock_Evaluation.md의 파일의 내용을 평가하라", client.messages[0][0]["content"])
+            self.assertIn("Evaluate the content of Mock_Evaluation.md using Mock_Standard.md as the standard.", client.messages[0][0]["content"])
             report = root / "HD2_result" / "evaluate_file" / "Mock_Standard.md__vs__Mock_Evaluation.md.md"
             self.assertTrue(report.exists())
-            self.assertIn("평가 결과가 저장되었습니다", result.text)
+            self.assertIn("Evaluation result saved", result.text)
 
     def test_use_file_extracts_then_calls_llm_with_default_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -177,7 +177,7 @@ class SlashToolsTests(unittest.TestCase):
             self.assertTrue((root / "HD2_result" / "extract_docs" / "a.xlsx.md").exists())
             saved = list((root / "HD2_result" / "use_file").glob("*.md"))
             self.assertEqual(len(saved), 1)
-            self.assertIn("a.xlsx의 내용을 요약하라", client.messages[0][1]["content"])
+            self.assertIn("Summarize the content of a.xlsx.", client.messages[0][1]["content"])
             self.assertIn("Revenue", client.messages[0][1]["content"])
 
     def test_use_file_normalizes_html_line_breaks(self) -> None:
@@ -186,7 +186,7 @@ class SlashToolsTests(unittest.TestCase):
             markdown = root / "source.md"
             markdown.write_text("# Source", encoding="utf-8")
             client = FakeEvaluationClient()
-            client.response = "요약 A<br>요약 B"
+            client.response = "summary A<br>summary B"
 
             result = run_slash_command("/use_file source.md", root, SlashToolContext(llm_client=client))
 
@@ -195,26 +195,26 @@ class SlashToolsTests(unittest.TestCase):
             self.assertEqual(len(saved), 1)
             self.assertNotIn("<br", result.text.lower())
             self.assertNotIn("<br", saved[0].read_text(encoding="utf-8").lower())
-            self.assertIn("요약 A\n요약 B", result.text)
+            self.assertIn("summary A\nsummary B", result.text)
 
     def test_use_file_uses_prompt_config_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as prompt_temp:
             root = Path(temp_dir)
             prompt_dir = Path(prompt_temp)
             (prompt_dir / "use_file.md").write_text(
-                "커스텀 사용 프롬프트\n파일={{source_name}}\n지시={{instruction}}",
+                "Custom use prompt\nfile={{source_name}}\ninstruction={{instruction}}",
                 encoding="utf-8",
             )
             _write_workbook(root / "a.xlsx", [["Metric", "Value"], ["Revenue", "42"]])
             client = FakeEvaluationClient()
 
             with patch("src.slash_tools.prompt_loader.DEFAULT_PROMPT_DIR", prompt_dir):
-                result = run_slash_command("/use_file a.xlsx 요약하라", root, SlashToolContext(llm_client=client))
+                result = run_slash_command("/use_file a.xlsx Summarize it.", root, SlashToolContext(llm_client=client))
 
             assert result is not None
-            self.assertIn("커스텀 사용 프롬프트", client.messages[0][0]["content"])
-            self.assertIn("파일=a.xlsx", client.messages[0][0]["content"])
-            self.assertIn("지시=요약하라", client.messages[0][0]["content"])
+            self.assertIn("Custom use prompt", client.messages[0][0]["content"])
+            self.assertIn("file=a.xlsx", client.messages[0][0]["content"])
+            self.assertIn("instruction=Summarize it.", client.messages[0][0]["content"])
 
     def test_save_last_output_writes_timestamped_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -281,7 +281,7 @@ class SlashToolsTests(unittest.TestCase):
             result = run_slash_command("/extract_file ../secret.xlsx", root, SlashToolContext())
 
             assert result is not None
-            self.assertIn("첨부된 작업 폴더 밖", result.text)
+            self.assertIn("outside the current workspace folder", result.text)
 
 
 def _write_workbook(path: Path, rows: list[list[str]]) -> None:

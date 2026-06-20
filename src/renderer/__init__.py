@@ -1,4 +1,4 @@
 """Renderer package placeholder.
 
-The deterministic PPTX renderer has been removed from this project.
+HD2 LLM Communicator currently stops the terminal planning flow at planner JSON.
 """

@@ -26,4 +26,4 @@ class SlashToolResult:
 
 
 def error_result(message: str, tool_name: str = "/unknown") -> SlashToolResult:
-    return SlashToolResult(text=f"도구 오류: {message}", tool_name=tool_name)
+    return SlashToolResult(text=f"Tool error: {message}", tool_name=tool_name)

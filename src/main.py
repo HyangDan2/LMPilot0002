@@ -42,7 +42,7 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> PlanningPipe
 
     goal = user_goal.strip()
     if not goal:
-        raise ValueError("A user goal is required, for example: Create a 7-slide executive summary")
+        raise ValueError("A user goal is required, for example: Create an executive summary plan")
 
     logger = get_logger()
     working_dir = ensure_dir(config.working_dir)
@@ -120,8 +120,8 @@ def render_pptx_pipeline(user_goal: str, config: PipelineConfig) -> PlanningPipe
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render a PPTX from workspace documents.")
-    parser.add_argument("goal", nargs="+", help="Presentation goal, for example: Create a 7-slide summary")
+    parser = argparse.ArgumentParser(description="Create planner JSON from workspace documents.")
+    parser.add_argument("goal", nargs="+", help="Planning goal, for example: Create an executive summary plan")
     parser.add_argument("--working-dir", default=None)
     parser.add_argument("--normalized-dir", default=None)
     parser.add_argument("--output-dir", default=None)

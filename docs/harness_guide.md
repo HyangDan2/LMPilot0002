@@ -1,6 +1,6 @@
-# Slash Tool Harness Guide
+# HD2 LLM Communicator Slash Tool Harness Guide
 
-This project keeps local prompt-box tools under `src/slash_tools`.
+HD2 LLM Communicator(OpenAI Compatible) keeps local prompt-box tools under `src/slash_tools`.
 Agents adding new tools should follow this harness instead of creating one-off GUI branches.
 
 ## Tool Contract
@@ -25,7 +25,8 @@ Tool handlers must:
 - Return `SlashToolResult`.
 - Write generated files only under `<current-workspace-folder>/HD2_result/<tool-folder>/`.
 - Never read or write outside the current workspace folder unless the user explicitly changes the harness.
-- Use Korean for user-facing results, progress text, recoverable errors, and default LLM prompts.
+- Keep documentation, prompt templates, and default prompt text in English.
+- For LLM tools, keep output language fixed to Korean markdown.
 - Use markdown line breaks for user-facing output. Do not rely on HTML `<br>` tags; `SlashToolResult` normalizes HTML line break tags to real newlines as a final safety pass.
 
 ## Path Safety
@@ -59,7 +60,7 @@ Ensures both inputs are markdown. If either input is a supported source file and
 When no extra prompt is provided, the default prompt is:
 
 ```text
-<argument1>의 기준으로 <argument2>의 파일의 내용을 평가하라
+Evaluate the content of <argument2> using <argument1> as the standard.
 ```
 
 `/evaluate_file --mock-test`
@@ -84,7 +85,7 @@ Ensures the input is markdown, extracting supported source files first when need
 When no instruction is provided, the default prompt is:
 
 ```text
-<argument1>의 내용을 요약하라
+Summarize the content of <argument1>.
 ```
 
 `/save_last_output`
@@ -105,7 +106,8 @@ For tools that call an LLM:
 
 - Put stable behavior in a prompt markdown file under `prompts/<tool_name>.md` when practical.
 - Use `src/slash_tools/prompt_loader.py` to load prompt markdown and render variables.
-- Keep a Korean fallback prompt in code so the tool still works when the prompt file is missing.
+- Keep an English fallback prompt in code so the tool still works when the prompt file is missing.
+- The fallback prompt must still explicitly require Korean markdown output.
 - Tell the LLM to avoid HTML tags such as `<br>` and use markdown line breaks instead.
 - Put source artifacts in the user message.
 - Append free-form user instructions as an additional prompt layer, not by rewriting extracted content.

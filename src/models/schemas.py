@@ -80,7 +80,7 @@ class SlidePlan:
 
 @dataclass(frozen=True)
 class PresentationPlan:
-    """Validated presentation plan used by the deterministic PPTX renderer."""
+    """Validated presentation plan emitted as planner JSON."""
 
     output_type: str
     title: str

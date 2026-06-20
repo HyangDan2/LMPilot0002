@@ -11,6 +11,7 @@ from .llm_client import OpenAIConnectionSettings
 
 
 DEFAULT_CONNECTION_SETTINGS_PATH = "openai_settings.json"
+DEFAULT_WINDOW_TITLE = "HD2 LLM Communicator(OpenAI Compatible)"
 
 
 @dataclass
@@ -28,7 +29,7 @@ class AppConfig:
     startup_timeout: float = 180.0
     response_timeout: float = 180.0
     db_path: str = "./data/app.db"
-    window_title: str = "Gemma Console GUI (PySide6)"
+    window_title: str = DEFAULT_WINDOW_TITLE
     window_width: int = 1000
     window_height: int = 720
     response_token_reserve: int = 256
@@ -105,7 +106,7 @@ def load_config(path: str) -> AppConfig:
         startup_timeout=float(raw.get("startup_timeout", 180.0)),
         response_timeout=float(raw.get("response_timeout", 180.0)),
         db_path=raw.get("db_path", "./data/app.db"),
-        window_title=raw.get("window_title", "Gemma Console GUI (PySide6)"),
+        window_title=raw.get("window_title", DEFAULT_WINDOW_TITLE),
         window_width=int(raw.get("window_width", 1000)),
         window_height=int(raw.get("window_height", 720)),
         response_token_reserve=int(raw.get("response_token_reserve", 256)),

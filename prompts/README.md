@@ -1,32 +1,33 @@
 # Slash Tool Prompt Instructions
 
-이 폴더의 markdown 파일을 수정하면 slash tool이 LLM에 전달하는 기본 지시를 바꿀 수 있습니다.
+HD2 LLM Communicator(OpenAI Compatible) loads these markdown files to change the default instructions that slash tools send to the LLM.
 
-## 수정 방법
+## How to Edit
 
-- `evaluate_file.md`: `/evaluate_file` 평가자 지시를 수정합니다.
-- `use_file.md`: `/use_file` 문서 기반 답변 지시를 수정합니다.
-- `{{instruction}}` 같은 변수는 실행 시 실제 값으로 치환됩니다.
-- 알 수 없는 변수는 그대로 남습니다.
-- `---` frontmatter는 있어도 되고 없어도 됩니다. 실제 LLM에는 frontmatter 아래 본문만 전달됩니다.
+- `evaluate_file.md`: edits the evaluator instructions for `/evaluate_file`.
+- `use_file.md`: edits the document-grounded answer instructions for `/use_file`.
+- Variables such as `{{instruction}}` are replaced with runtime values.
+- Unknown variables are left unchanged.
+- `---` frontmatter is optional. Only the body below frontmatter is sent to the LLM.
 
-## 사용 가능한 변수
+## Available Variables
 
 `evaluate_file.md`
 
-- `{{instruction}}`: 사용자가 입력한 추가 평가 지시 또는 기본 평가 지시
-- `{{standard_name}}`: 기준 파일 이름
-- `{{target_name}}`: 평가 대상 파일 이름
+- `{{instruction}}`: the user-provided extra evaluation instruction or the default evaluation instruction
+- `{{standard_name}}`: standard file name
+- `{{target_name}}`: target file name
 
 `use_file.md`
 
-- `{{instruction}}`: 사용자가 입력한 지시 또는 기본 요약 지시
-- `{{source_name}}`: 사용할 파일 이름
+- `{{instruction}}`: the user-provided instruction or the default summary instruction
+- `{{source_name}}`: source file name
 
-## 권장 규칙
+## Recommended Rules
 
-- 사용자-facing 출력은 한국어 markdown을 기준으로 작성하세요.
-- HTML 태그(`<br>` 등)를 사용하지 말고 markdown 줄바꿈을 사용하세요. Slash tool은 안전장치로 HTML 줄바꿈 태그를 실제 줄바꿈으로 정규화합니다.
-- 필요한 출력 섹션을 명확히 적으세요.
-- 문서에 없는 내용은 추측하지 말라고 명시하세요.
-- 변수명을 지우면 해당 실행 맥락이 prompt에 들어가지 않습니다.
+- Keep prompt text in English, except for the output-language requirement.
+- Require user-facing LLM output to be Korean markdown.
+- Do not use HTML tags such as `<br>`; use markdown line breaks instead. Slash tools also normalize HTML line break tags to real newlines as a safety pass.
+- State the required output sections clearly.
+- Tell the model not to guess when content is missing from the document.
+- If you remove a variable name, that runtime context will no longer be included in the prompt.

@@ -9,7 +9,7 @@ from .results import SlashToolResult
 def tool_help_command(args: list[str], working_folder: str | Path | None, context: SlashToolContext, progress=None) -> SlashToolResult:
     from .registry import SLASH_TOOLS
 
-    lines = ["# 로컬 Slash Tools", ""]
+    lines = ["# Local Slash Tools", ""]
     for tool in SLASH_TOOLS.values():
         lines.extend(
             [
@@ -17,12 +17,12 @@ def tool_help_command(args: list[str], working_folder: str | Path | None, contex
                 "",
                 tool.description,
                 "",
-                f"사용법: `{tool.usage}`",
+                f"Usage: `{tool.usage}`",
                 "",
             ]
         )
         if tool.examples:
-            lines.append("예시:")
+            lines.append("Examples:")
             for example in tool.examples:
                 lines.append(f"- `{example}`")
             lines.append("")
