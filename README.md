@@ -185,14 +185,14 @@ python run.py --config config.yaml
 
   For terminal usage, settings are loaded from `config.yaml`; set `base_url`, `api_key`, and `model`, or the existing `openai_base_url`, `openai_api_key`, and `openai_model` aliases. Planning is adaptive: the app summarizes the knowledge map in chunks, recursively splits failed chunks into smaller work, retries without JSON response-format enforcement when needed, and can write local fallback summaries for chunks that still fail. Tune `planner_chunk_chars`, `planner_min_chunk_chars`, `planner_max_retries`, `planner_intermediate_max_tokens`, `planner_final_max_tokens` for smaller local backends.
 
-* **Attachments**
+* **Workspace folder**
 
-  Use **Attach Folder** in the left sidebar under **Sessions** to select a workspace folder. The attachment list shows supported files directly inside that selected folder, including `.pptx`; subfolders are not scanned. Selecting a new folder replaces the previous attachment list. Files are not automatically included in prompts. Double-click an attached file to insert its filename into the input box. Use **Clear Attachments** to clear the full list.
+  Use **Select Workspace Folder** in the left sidebar under **Sessions** to choose the current workspace folder. The sidebar shows `Current Workspace Folder : <path>` even when the folder has no supported files. The attachment list shows supported files directly inside that selected folder, including `.md` and `.pptx`; subfolders are not scanned. Selecting a new workspace folder replaces the previous attachment list. Files are not automatically included in prompts. Double-click an attached file to insert its filename into the input box. Use **Clear Workspace** to clear the selected folder and attachment list.
 
   Supported file types:
 
   ```text
-  .txt .md .json .yaml .yml .csv .py .log .pdf .docx .png .jpg .jpeg .bmp .webp
+  .txt .md .json .yaml .yml .csv .py .log .pdf .docx .pptx .png .jpg .jpeg .bmp .webp
   ```
 
   Plain text files are read as UTF-8 first, with fallback decoding for common local encodings. PDF extraction uses `pypdf`; DOCX extraction uses `python-docx`. Images use `Pillow` for metadata and a local heuristic caption, with OCR attempted through `pytesseract` or the native `tesseract` command when available. Unsupported files in the selected folder are skipped; unreadable supported files show a GUI warning.
@@ -204,38 +204,49 @@ python run.py --config config.yaml
   ```text
   /extract_file <xlsx|pptx|pdf|docx path>
   /evaluate_file <standard markdown|file> <target markdown|file> [extra prompt]
+  /evaluate_file --mock-test
   /use_file <markdown|file> [instruction]
   /save_last_output
   /tool_help
   ```
 
+  Slash tool의 사용자-facing 출력과 LLM 기본 지시는 한국어 markdown을 기준으로 합니다. LLM 응답에 `<br>` 같은 HTML 줄바꿈 태그가 섞이면 slash tool이 실제 줄바꿈으로 정규화합니다.
+  `/evaluate_file`과 `/use_file`의 LLM instructions는 repo의 `prompts/` 폴더에서 markdown 파일로 수정할 수 있습니다.
+
+  ```text
+  prompts/evaluate_file.md
+  prompts/use_file.md
+  ```
+
   Extracted markdown is saved under:
 
   ```text
-  <attached-folder>/HD2_result/extract_docs/<filename>.md
+  <current-workspace-folder>/HD2_result/extract_docs/<filename>.md
   ```
 
   Evaluation reports are saved under:
 
   ```text
-  <attached-folder>/HD2_result/evaluate_file/
+  <current-workspace-folder>/HD2_result/evaluate_file/
   ```
+
+  `/evaluate_file --mock-test`는 current workspace folder에 `Mock_Standard.md`와 `Mock_Evaluation.md`를 생성한 뒤, mock 기준으로 mock 평가 문서를 바로 평가합니다.
 
   `/use_file` answers from one file and saves the LLM output under:
 
   ```text
-  <attached-folder>/HD2_result/use_file/
+  <current-workspace-folder>/HD2_result/use_file/
   ```
 
   `/save_last_output` saves the latest assistant or tool output under:
 
   ```text
-  <attached-folder>/HD2_result/save_last_output/YYMMDD_HHMMSS.md
+  <current-workspace-folder>/HD2_result/save_last_output/YYMMDD_HHMMSS.md
   ```
 
 * **Generated artifacts**
 
-  During normal chat, the model can request previously generated artifacts from the attached folder. The app safely executes these requests only under `<attached-folder>/HD2_result/`, then sends the artifact content back to the model for a follow-up answer. Supported tags:
+  During normal chat, the model can request previously generated artifacts from the current workspace folder. The app safely executes these requests only under `<current-workspace-folder>/HD2_result/`, then sends the artifact content back to the model for a follow-up answer. Supported tags:
 
   ```text
   [read_output] extract_docs/a.xlsx.md [/read_output]
@@ -249,7 +260,7 @@ python run.py --config config.yaml
   [read_file] HD2_result/extract_docs/a.xlsx.md [/read_file]
   ```
 
-  Paths are resolved inside the attached folder and cannot escape `HD2_result/`.
+  Paths are resolved inside the current workspace folder and cannot escape `HD2_result/`.
 
 * **Markdown export**
 
@@ -295,8 +306,8 @@ GUI (PySide6)
    │      ├── OpenAI-compatible /v1/embeddings
    │      └── cosine similarity search
    │
-  ├── Attachments
-  │      └── folder file listing and filename insertion
+  ├── Workspace Folder
+  │      └── supported file listing and filename insertion
   │
    └── Text Processing
           ├── ANSI strip

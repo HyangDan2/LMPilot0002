@@ -252,13 +252,50 @@ class GuiFlowTests(unittest.TestCase):
         with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(first_folder)):
             window.on_attach_files()
         self.assertEqual(window._attached_file_paths, [str(first_file.resolve())])
+        self.assertEqual(window._active_attachment_folder(), str(first_folder.resolve()))
+        self.assertEqual(
+            window.workspace_folder_label.text(),
+            f"Current Workspace Folder : {first_folder.resolve()}",
+        )
 
         with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(second_folder)):
             window.on_attach_files()
 
         self.assertEqual(window._attached_file_paths, [str(second_file.resolve())])
+        self.assertEqual(window._active_attachment_folder(), str(second_folder.resolve()))
         self.assertEqual(window.attachment_list.count(), 1)
         self.assertIn("second.pptx", window.attachment_list.item(0).text())
+
+        window.close()
+        process_events(self.app, 5)
+
+    def test_select_empty_workspace_folder_sets_workspace_without_attachments(self) -> None:
+        console = FakeConsole()
+        db_path = Path(tempfile.mkdtemp()) / "app.db"
+        folder = Path(tempfile.mkdtemp())
+
+        window = MainWindow(
+            console,
+            ChatRepository(str(db_path)),
+            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
+        )
+
+        with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(folder)):
+            window.on_attach_files()
+
+        self.assertEqual(window._attached_file_paths, [])
+        self.assertEqual(window.attachment_list.count(), 0)
+        self.assertEqual(window._active_attachment_folder(), str(folder.resolve()))
+        self.assertEqual(
+            window.workspace_folder_label.text(),
+            f"Current Workspace Folder : {folder.resolve()}",
+        )
+        self.assertTrue(window.clear_attachments_btn.isEnabled())
+
+        window._clear_attached_files()
+        self.assertIsNone(window._active_attachment_folder())
+        self.assertEqual(window.workspace_folder_label.text(), "Current Workspace Folder : -")
+        self.assertFalse(window.clear_attachments_btn.isEnabled())
 
         window.close()
         process_events(self.app, 5)

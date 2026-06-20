@@ -54,8 +54,6 @@ def list_supported_files_in_folder(folder_path: str) -> list[Path]:
         if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
             paths.append(file_path.resolve())
 
-    if not paths:
-        raise AttachmentError(f"No supported files found in folder: {root}")
     return paths
 
 

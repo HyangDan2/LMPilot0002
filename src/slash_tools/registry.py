@@ -31,35 +31,35 @@ class SlashTool:
 SLASH_TOOLS: dict[str, SlashTool] = {
     "/extract_file": SlashTool(
         name="/extract_file",
-        description="Extract an xlsx, pptx, pdf, or docx file into markdown under HD2_result/extract_docs.",
+        description="xlsx, pptx, pdf, docx 파일을 HD2_result/extract_docs 아래 markdown으로 추출합니다.",
         usage="/extract_file <file>",
         handler=extract_file_command,
         examples=["/extract_file a.xlsx", "/extract_file 'deck review.pptx'"],
     ),
     "/evaluate_file": SlashTool(
         name="/evaluate_file",
-        description="Evaluate a target markdown or source file against a standard markdown or source file using the configured LLM.",
-        usage="/evaluate_file <standard markdown|file> <target markdown|file> [extra prompt]",
+        description="기준 markdown 또는 파일을 바탕으로 평가 대상 markdown 또는 파일을 LLM으로 평가합니다. --mock-test로 샘플 평가를 실행할 수 있습니다.",
+        usage="/evaluate_file <기준 markdown|파일> <평가대상 markdown|파일> [추가 지시] 또는 /evaluate_file --mock-test",
         handler=evaluate_file_command,
-        examples=["/evaluate_file a.xlsx b.pptx 해당 내용이 제대로 구성되어 있는지 확인하라"],
+        examples=["/evaluate_file a.xlsx b.pptx 해당 내용이 제대로 구성되어 있는지 확인하라", "/evaluate_file --mock-test"],
     ),
     "/use_file": SlashTool(
         name="/use_file",
-        description="Ask the configured LLM to answer from one markdown or source file, extracting it first when needed.",
-        usage="/use_file <markdown|file> [instruction]",
+        description="하나의 markdown 또는 원본 파일을 근거로 LLM 답변을 생성합니다. 필요하면 먼저 파일을 추출합니다.",
+        usage="/use_file <markdown|파일> [지시]",
         handler=use_file_command,
         examples=["/use_file a.xlsx 해당 파일에서 quantitative result를 찾아서 요약하라", "/use_file a.xlsx"],
     ),
     "/save_last_output": SlashTool(
         name="/save_last_output",
-        description="Save the latest assistant or tool output to HD2_result/save_last_output.",
+        description="최근 assistant 또는 tool 출력을 HD2_result/save_last_output 아래에 저장합니다.",
         usage="/save_last_output",
         handler=save_last_output_command,
         examples=["/save_last_output"],
     ),
     "/tool_help": SlashTool(
         name="/tool_help",
-        description="Show registry-generated help for all available local slash tools.",
+        description="사용 가능한 로컬 slash tool 도움말을 표시합니다.",
         usage="/tool_help",
         handler=tool_help_command,
         examples=["/tool_help"],
@@ -85,7 +85,7 @@ def run_slash_command(
     command = parts[0]
     tool = SLASH_TOOLS.get(command)
     if tool is None:
-        return error_result(f"unknown slash command '{command}'. Run /tool_help to see available commands.", command)
+        return error_result(f"알 수 없는 slash command입니다: '{command}'. 사용 가능한 명령은 /tool_help로 확인하세요.", command)
     try:
         return tool.handler(parts[1:], working_folder, context, progress)
     except SlashToolError as exc:

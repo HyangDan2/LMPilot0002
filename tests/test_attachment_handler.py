@@ -52,6 +52,8 @@ class AttachmentHandlerTests(unittest.TestCase):
         root = Path(tempfile.mkdtemp())
         note = root / "note.txt"
         note.write_text("hello", encoding="utf-8")
+        markdown = root / "manual.md"
+        markdown.write_text("# Manual", encoding="utf-8")
         slides = root / "slides.pptx"
         slides.write_bytes(b"placeholder")
         ignored = root / "archive.bin"
@@ -61,7 +63,15 @@ class AttachmentHandlerTests(unittest.TestCase):
         nested_note = nested / "nested.md"
         nested_note.write_text("skip me", encoding="utf-8")
 
-        self.assertEqual(list_supported_files_in_folder(str(root)), [note.resolve(), slides.resolve()])
+        self.assertEqual(
+            list_supported_files_in_folder(str(root)),
+            [markdown.resolve(), note.resolve(), slides.resolve()],
+        )
+
+    def test_list_supported_files_in_folder_allows_empty_workspace(self) -> None:
+        root = Path(tempfile.mkdtemp())
+
+        self.assertEqual(list_supported_files_in_folder(str(root)), [])
 
     def test_format_user_text_with_attachments(self) -> None:
         context = format_attachment_context(

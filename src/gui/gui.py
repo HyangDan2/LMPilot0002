@@ -238,6 +238,7 @@ class MainWindow(QMainWindow):
         self._tool_stream_block_start: int | None = None
         self._attached_file_paths: list[str] = []
         self._attachment_folder_roots: dict[str, str] = {}
+        self._workspace_folder: str | None = None
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -256,10 +257,13 @@ class MainWindow(QMainWindow):
         self.attachment_list.setMaximumHeight(120)
         self.attachment_list.itemDoubleClicked.connect(self._on_attachment_double_clicked)
 
-        self.attach_file_btn = QPushButton('Attach Folder')
+        self.workspace_folder_label = QLabel('Current Workspace Folder : -')
+        self.workspace_folder_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        self.attach_file_btn = QPushButton('Select Workspace Folder')
         self.attach_file_btn.clicked.connect(self.on_attach_files)
 
-        self.clear_attachments_btn = QPushButton('Clear Attachments')
+        self.clear_attachments_btn = QPushButton('Clear Workspace')
         self.clear_attachments_btn.clicked.connect(self._clear_attached_files)
         self.clear_attachments_btn.setDisabled(True)
 
@@ -315,6 +319,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(QLabel('Sessions'))
         left_layout.addWidget(self.session_list)
         left_layout.addWidget(QLabel('Attachments'))
+        left_layout.addWidget(self.workspace_folder_label)
         left_layout.addWidget(self.attachment_list)
         attachment_button_row = QHBoxLayout()
         attachment_button_row.addWidget(self.attach_file_btn)
@@ -563,7 +568,7 @@ class MainWindow(QMainWindow):
     def on_attach_files(self) -> None:
         folder = QFileDialog.getExistingDirectory(
             self,
-            'Attach Workspace Folder',
+            'Select Workspace Folder',
             '',
         )
         if not folder:
@@ -572,14 +577,15 @@ class MainWindow(QMainWindow):
         try:
             files = list_supported_files_in_folder(folder)
         except AttachmentError as exc:
-            QMessageBox.warning(self, 'Attach Folder', str(exc))
+            QMessageBox.warning(self, 'Select Workspace Folder', str(exc))
             return
 
+        root = str(Path(folder).expanduser().resolve())
+        self._workspace_folder = root
         self._attached_file_paths.clear()
         self._attachment_folder_roots.clear()
         self.attachment_list.clear()
 
-        root = str(Path(folder).expanduser().resolve())
         existing_paths = set(self._attached_file_paths)
         failures: list[str] = []
         for path in files:
@@ -595,8 +601,9 @@ class MainWindow(QMainWindow):
             existing_paths.add(attachment_path)
 
         self._refresh_attachment_list()
+        self._set_status(f'Workspace folder selected: {root}')
         if failures:
-            QMessageBox.warning(self, 'Attach Folder', '\n'.join(failures))
+            QMessageBox.warning(self, 'Select Workspace Folder', '\n'.join(failures))
 
     @Slot()
     def on_save_chat_markdown(self) -> None:
@@ -1036,7 +1043,7 @@ class MainWindow(QMainWindow):
         self.attach_file_btn.setDisabled(testing_connection or has_running_slash_tool)
         self.copy_last_output_btn.setDisabled(testing_connection)
         self.save_chat_btn.setDisabled(testing_connection)
-        self.clear_attachments_btn.setDisabled(testing_connection or has_running_slash_tool or not self._attached_file_paths)
+        self.clear_attachments_btn.setDisabled(testing_connection or has_running_slash_tool or self._workspace_folder is None)
 
     @Slot(QListWidgetItem)
     def _on_attachment_double_clicked(self, item: QListWidgetItem) -> None:
@@ -1127,6 +1134,8 @@ class MainWindow(QMainWindow):
         return '\n'.join(lines)
 
     def _active_attachment_folder(self) -> str | None:
+        if self._workspace_folder:
+            return self._workspace_folder
         roots = [root for root in self._attachment_folder_roots.values() if root]
         if not roots:
             return None
@@ -1149,9 +1158,16 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f'{self._attachment_display_name(path)} ({file_type})')
             item.setToolTip(path)
             self.attachment_list.addItem(item)
+        self._refresh_workspace_folder_label()
         self._refresh_controls()
 
+    def _refresh_workspace_folder_label(self) -> None:
+        display = self._workspace_folder or '-'
+        self.workspace_folder_label.setText(f'Current Workspace Folder : {display}')
+        self.workspace_folder_label.setToolTip(self._workspace_folder or '')
+
     def _clear_attached_files(self) -> None:
+        self._workspace_folder = None
         self._attached_file_paths.clear()
         self._attachment_folder_roots.clear()
         self._refresh_attachment_list()

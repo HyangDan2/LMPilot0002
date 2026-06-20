@@ -20,10 +20,10 @@ def extract_file_command(
     progress=None,
 ) -> SlashToolResult:
     if len(args) != 1:
-        raise SlashToolError("Usage: /extract_file <xlsx|pptx|pdf|docx path>")
+        raise SlashToolError("사용법: /extract_file <xlsx|pptx|pdf|docx 경로>")
     output_path = extract_file_to_markdown(args[0], working_folder, context, progress=progress)
     return SlashToolResult(
-        text=f"Extracted file markdown saved:\n{output_path}",
+        text=f"파일 추출 markdown이 저장되었습니다:\n{output_path}",
         tool_name="/extract_file",
     )
 
@@ -37,14 +37,14 @@ def extract_file_to_markdown(
     root = require_working_folder(working_folder)
     source = resolve_inside(root, raw_path)
     if not source.exists():
-        raise SlashToolError(f"File does not exist: {source}")
+        raise SlashToolError(f"파일이 존재하지 않습니다: {source}")
     if not source.is_file():
-        raise SlashToolError(f"Path is not a file: {source}")
+        raise SlashToolError(f"파일 경로가 아닙니다: {source}")
     if source.suffix.lower() not in SUPPORTED_EXTRACT_EXTENSIONS:
-        raise SlashToolError(f"Unsupported file type for /extract_file: {source.suffix}")
+        raise SlashToolError(f"/extract_file에서 지원하지 않는 파일 형식입니다: {source.suffix}")
 
     if progress is not None:
-        progress("status", f"Extracting {source.name}...")
+        progress("status", f"{source.name} 파일을 추출하는 중...")
     context.check_cancelled()
     markdown = extract_file_markdown(source, context)
     out_dir = output_root(root, "extract_docs")
@@ -64,7 +64,7 @@ def extract_file_markdown(source: Path, context: SlashToolContext) -> str:
     elif extension == ".docx":
         body = _extract_docx(source, context)
     else:
-        raise SlashToolError(f"Unsupported file type for /extract_file: {source.suffix}")
+        raise SlashToolError(f"/extract_file에서 지원하지 않는 파일 형식입니다: {source.suffix}")
 
     extracted_at = datetime.now(timezone.utc).isoformat()
     header = [
@@ -82,12 +82,12 @@ def _extract_xlsx(source: Path, context: SlashToolContext) -> str:
     try:
         from openpyxl import load_workbook  # type: ignore[import-not-found]
     except Exception as exc:
-        raise SlashToolError("XLSX extraction requires openpyxl.") from exc
+        raise SlashToolError("XLSX 추출에는 openpyxl이 필요합니다.") from exc
 
     try:
         workbook = load_workbook(str(source), data_only=True, read_only=True)
     except Exception as exc:
-        raise SlashToolError(f"Failed to open XLSX {source.name}: {exc}") from exc
+        raise SlashToolError(f"XLSX 파일을 열지 못했습니다: {source.name}: {exc}") from exc
 
     sections: list[str] = []
     try:
@@ -108,12 +108,12 @@ def _extract_pptx(source: Path, context: SlashToolContext) -> str:
     try:
         from pptx import Presentation  # type: ignore[import-not-found]
     except Exception as exc:
-        raise SlashToolError("PPTX extraction requires python-pptx.") from exc
+        raise SlashToolError("PPTX 추출에는 python-pptx가 필요합니다.") from exc
 
     try:
         presentation = Presentation(str(source))
     except Exception as exc:
-        raise SlashToolError(f"Failed to open PPTX {source.name}: {exc}") from exc
+        raise SlashToolError(f"PPTX 파일을 열지 못했습니다: {source.name}: {exc}") from exc
 
     sections: list[str] = []
     for slide_index, slide in enumerate(presentation.slides, start=1):
@@ -138,12 +138,12 @@ def _extract_pdf(source: Path, context: SlashToolContext) -> str:
     try:
         from pypdf import PdfReader  # type: ignore[import-not-found]
     except Exception as exc:
-        raise SlashToolError("PDF extraction requires pypdf.") from exc
+        raise SlashToolError("PDF 추출에는 pypdf가 필요합니다.") from exc
 
     try:
         reader = PdfReader(str(source))
     except Exception as exc:
-        raise SlashToolError(f"Failed to open PDF {source.name}: {exc}") from exc
+        raise SlashToolError(f"PDF 파일을 열지 못했습니다: {source.name}: {exc}") from exc
 
     sections: list[str] = []
     for page_index, page in enumerate(reader.pages, start=1):
@@ -157,12 +157,12 @@ def _extract_docx(source: Path, context: SlashToolContext) -> str:
     try:
         from docx import Document  # type: ignore[import-not-found]
     except Exception as exc:
-        raise SlashToolError("DOCX extraction requires python-docx.") from exc
+        raise SlashToolError("DOCX 추출에는 python-docx가 필요합니다.") from exc
 
     try:
         document = Document(str(source))
     except Exception as exc:
-        raise SlashToolError(f"Failed to open DOCX {source.name}: {exc}") from exc
+        raise SlashToolError(f"DOCX 파일을 열지 못했습니다: {source.name}: {exc}") from exc
 
     blocks: list[str] = ["## Document Text", ""]
     for paragraph in document.paragraphs:
