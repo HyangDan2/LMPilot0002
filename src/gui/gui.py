@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStatusBar,
     QTextEdit,
@@ -238,7 +239,7 @@ class MainWindow(QMainWindow):
         self._tool_stream_block_start: int | None = None
         self._attached_file_paths: list[str] = []
         self._attachment_folder_roots: dict[str, str] = {}
-        self._workspace_folder: str | None = None
+        self._session_workspace_folders: dict[int, str] = {}
 
         self.setWindowTitle(app_config.window_title)
         self.resize(app_config.window_width, app_config.window_height)
@@ -256,9 +257,6 @@ class MainWindow(QMainWindow):
         self.attachment_list = QListWidget()
         self.attachment_list.setMaximumHeight(120)
         self.attachment_list.itemDoubleClicked.connect(self._on_attachment_double_clicked)
-
-        self.workspace_folder_label = QLabel('Current Workspace Folder : -')
-        self.workspace_folder_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         self.attach_file_btn = QPushButton('Select Workspace Folder')
         self.attach_file_btn.clicked.connect(self.on_attach_files)
@@ -319,7 +317,6 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(QLabel('Sessions'))
         left_layout.addWidget(self.session_list)
         left_layout.addWidget(QLabel('Attachments'))
-        left_layout.addWidget(self.workspace_folder_label)
         left_layout.addWidget(self.attachment_list)
         attachment_button_row = QHBoxLayout()
         attachment_button_row.addWidget(self.attach_file_btn)
@@ -359,6 +356,11 @@ class MainWindow(QMainWindow):
 
         status = QStatusBar()
         self.setStatusBar(status)
+        self.workspace_status_label = QLabel()
+        self.workspace_status_label.setMinimumWidth(0)
+        self.workspace_status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        status.addPermanentWidget(self.workspace_status_label, 1)
+        self._refresh_workspace_status()
         self._set_status('Starting console session...')
 
         self._init_console()
@@ -552,6 +554,7 @@ class MainWindow(QMainWindow):
         self.current_session_id = self.repository.create_session(DEFAULT_SESSION_TITLE)
         self._reload_sessions()
         self._select_session_in_list(self.current_session_id)
+        self._load_workspace_for_session(self.current_session_id)
         self.chat_view.clear()
         self._append_block('System', 'New chat started.')
         self._set_status('Idle')
@@ -566,6 +569,9 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_attach_files(self) -> None:
+        if self.current_session_id is None:
+            QMessageBox.information(self, 'Select Workspace Folder', 'Please select or create a session first.')
+            return
         folder = QFileDialog.getExistingDirectory(
             self,
             'Select Workspace Folder',
@@ -581,7 +587,7 @@ class MainWindow(QMainWindow):
             return
 
         root = str(Path(folder).expanduser().resolve())
-        self._workspace_folder = root
+        self._set_session_workspace_folder(self.current_session_id, root)
         self._attached_file_paths.clear()
         self._attachment_folder_roots.clear()
         self.attachment_list.clear()
@@ -1043,7 +1049,7 @@ class MainWindow(QMainWindow):
         self.attach_file_btn.setDisabled(testing_connection or has_running_slash_tool)
         self.copy_last_output_btn.setDisabled(testing_connection)
         self.save_chat_btn.setDisabled(testing_connection)
-        self.clear_attachments_btn.setDisabled(testing_connection or has_running_slash_tool or self._workspace_folder is None)
+        self.clear_attachments_btn.setDisabled(testing_connection or has_running_slash_tool or self._current_workspace_folder() is None)
 
     @Slot(QListWidgetItem)
     def _on_attachment_double_clicked(self, item: QListWidgetItem) -> None:
@@ -1068,6 +1074,7 @@ class MainWindow(QMainWindow):
         self._refresh_controls()
 
     def _load_session_messages(self, session_id: int) -> None:
+        self._load_workspace_for_session(session_id)
         self.chat_view.clear()
         self._streaming_assistant_started = False
         self._streaming_block_start = None
@@ -1134,12 +1141,35 @@ class MainWindow(QMainWindow):
         return '\n'.join(lines)
 
     def _active_attachment_folder(self) -> str | None:
-        if self._workspace_folder:
-            return self._workspace_folder
+        workspace = self._current_workspace_folder()
+        if workspace:
+            return workspace
         roots = [root for root in self._attachment_folder_roots.values() if root]
         if not roots:
             return None
         return roots[-1]
+
+    def _current_workspace_folder(self) -> str | None:
+        if self.current_session_id is None:
+            return None
+        return self._workspace_folder_for_session(self.current_session_id)
+
+    def _workspace_folder_for_session(self, session_id: int) -> str | None:
+        workspace = self._session_workspace_folders.get(session_id)
+        if workspace is not None:
+            return workspace
+        persisted_workspace = self.repository.get_session_workspace_folder(session_id).strip()
+        if persisted_workspace:
+            self._session_workspace_folders[session_id] = persisted_workspace
+            return persisted_workspace
+        return None
+
+    def _set_session_workspace_folder(self, session_id: int, workspace: str | None) -> None:
+        if workspace:
+            self._session_workspace_folders[session_id] = workspace
+        else:
+            self._session_workspace_folders.pop(session_id, None)
+        self.repository.update_session_workspace_folder(session_id, workspace)
 
     def _attachment_display_name(self, path: str) -> str:
         root = self._attachment_folder_roots.get(path)
@@ -1158,16 +1188,53 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f'{self._attachment_display_name(path)} ({file_type})')
             item.setToolTip(path)
             self.attachment_list.addItem(item)
-        self._refresh_workspace_folder_label()
+        self._refresh_workspace_status()
         self._refresh_controls()
 
-    def _refresh_workspace_folder_label(self) -> None:
-        display = self._workspace_folder or '-'
-        self.workspace_folder_label.setText(f'Current Workspace Folder : {display}')
-        self.workspace_folder_label.setToolTip(self._workspace_folder or '')
+    def _load_workspace_for_session(self, session_id: int) -> None:
+        self._attached_file_paths.clear()
+        self._attachment_folder_roots.clear()
+        workspace = self._workspace_folder_for_session(session_id)
+        if workspace:
+            try:
+                files = list_supported_files_in_folder(workspace)
+            except AttachmentError:
+                files = []
+            existing_paths: set[str] = set()
+            for path in files:
+                try:
+                    attachment_path = str(validate_attachment_path(str(path)))
+                except AttachmentError:
+                    continue
+                self._attachment_folder_roots[attachment_path] = workspace
+                if attachment_path in existing_paths:
+                    continue
+                self._attached_file_paths.append(attachment_path)
+                existing_paths.add(attachment_path)
+        self._refresh_attachment_list()
+
+    def _refresh_workspace_status(self) -> None:
+        workspace = self._current_workspace_folder()
+        display = self._compact_workspace_display(workspace) if workspace else '-'
+        text = f'Current Workspace Folder : {display}'
+        self.workspace_status_label.setText(text)
+        self.workspace_status_label.setToolTip(f'Current Workspace Folder : {workspace}' if workspace else text)
+
+    def _compact_workspace_display(self, workspace: str, max_chars: int = 96) -> str:
+        if len(workspace) <= max_chars:
+            return workspace
+        path = Path(workspace)
+        parts = path.parts
+        if len(parts) >= 3:
+            suffix = str(Path(*parts[-3:]))
+            compact = f".../{suffix}"
+            if len(compact) <= max_chars:
+                return compact
+        return f"...{workspace[-(max_chars - 3):]}"
 
     def _clear_attached_files(self) -> None:
-        self._workspace_folder = None
+        if self.current_session_id is not None:
+            self._set_session_workspace_folder(self.current_session_id, None)
         self._attached_file_paths.clear()
         self._attachment_folder_roots.clear()
         self._refresh_attachment_list()
@@ -1333,9 +1400,13 @@ class MainWindow(QMainWindow):
             return
 
         self.repository.delete_session(session_id)
+        self._session_workspace_folders.pop(session_id, None)
 
         if self.current_session_id == session_id:
             self.current_session_id = None
+            self._attached_file_paths.clear()
+            self._attachment_folder_roots.clear()
+            self._refresh_attachment_list()
             self.chat_view.clear()
             self._append_block('System', 'Select a session or click New Chat.')
 

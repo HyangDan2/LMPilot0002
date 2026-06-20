@@ -25,6 +25,7 @@ Tool handlers must:
 - Return `SlashToolResult`.
 - Write generated files only under `<current-workspace-folder>/HD2_result/<tool-folder>/`.
 - Never read or write outside the current workspace folder unless the user explicitly changes the harness.
+- Treat the current workspace folder as session-scoped GUI state persisted on the chat session. The GUI passes the selected session's workspace to the tool when execution starts.
 - Keep documentation, prompt templates, and default prompt text in English.
 - For LLM tools, keep output language fixed to Korean markdown.
 - Use markdown line breaks for user-facing output. Do not rely on HTML `<br>` tags; `SlashToolResult` normalizes HTML line break tags to real newlines as a final safety pass.
@@ -38,6 +39,8 @@ Use helpers from `src/slash_tools/path_safety.py`:
 - `output_root` for generated output directories.
 
 Do not hand-roll path traversal checks in each tool.
+
+The GUI displays the selected session's workspace in the bottom status bar as `Current Workspace Folder : <path>` or `Current Workspace Folder : -`.
 
 ## Current Tools
 

@@ -28,11 +28,13 @@ class ChatRepository:
                 CREATE TABLE IF NOT EXISTS sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT NOT NULL,
+                    workspace_folder TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
+            self._ensure_column(conn, "sessions", "workspace_folder", "TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -61,6 +63,12 @@ class ChatRepository:
             )
             conn.commit()
 
+    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        cur = conn.execute(f"PRAGMA table_info({table})")
+        existing_columns = {str(row["name"]) for row in cur.fetchall()}
+        if column not in existing_columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
     def create_session(self, title: str = "New Chat") -> int:
         with self._connect() as conn:
             cur = conn.execute("INSERT INTO sessions (title) VALUES (?)", (title,))
@@ -81,6 +89,20 @@ class ChatRepository:
             )
             conn.commit()
 
+    def get_session_workspace_folder(self, session_id: int) -> str:
+        with self._connect() as conn:
+            cur = conn.execute("SELECT workspace_folder FROM sessions WHERE id = ?", (session_id,))
+            row = cur.fetchone()
+            return str(row["workspace_folder"] or "") if row is not None else ""
+
+    def update_session_workspace_folder(self, session_id: int, workspace_folder: str | None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET workspace_folder = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (workspace_folder or None, session_id),
+            )
+            conn.commit()
+
     def add_message(self, session_id: int, role: str, content: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -96,7 +118,7 @@ class ChatRepository:
     def list_sessions(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             cur = conn.execute(
-                "SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC, id DESC"
+                "SELECT id, title, workspace_folder, created_at, updated_at FROM sessions ORDER BY updated_at DESC, id DESC"
             )
             return [dict(row) for row in cur.fetchall()]
 

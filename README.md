@@ -110,15 +110,23 @@ Legacy `llama-cli` settings are still present in the config template but are onl
 
 ## Workspace Folder
 
-Use **Select Workspace Folder** in the left sidebar to choose the current workspace folder.
+Use **Select Workspace Folder** in the left sidebar to choose the current workspace folder for the selected chat session.
 
-The GUI shows:
+The GUI shows the selected session's workspace in the bottom status bar:
 
 ```text
 Current Workspace Folder : <path>
 ```
 
-The folder is selected even when it contains no supported files. The attachment list shows supported files directly inside that folder; subfolders are not scanned for the GUI attachment list.
+If the selected session has no workspace, the status bar shows:
+
+```text
+Current Workspace Folder : -
+```
+
+Workspace folders are stored per chat session. Switching sessions also switches the active workspace folder and refreshes the attachment list for that session. Long workspace paths are compacted in the status bar and exposed in the tooltip.
+
+The folder is selected even when it contains no supported files. The attachment list shows supported files directly inside the selected session's workspace folder; subfolders are not scanned for the GUI attachment list.
 
 Supported GUI attachment file types:
 
@@ -128,13 +136,13 @@ Supported GUI attachment file types:
 
 Files are not automatically included in ordinary chat prompts. Double-click an item in the attachment list to insert its filename into the input box.
 
-Use **Clear Workspace** to clear the selected workspace folder and attachment list.
+Use **Clear Workspace** to clear the selected session's workspace folder and attachment list.
 
 ---
 
 ## Local Slash Tools
 
-Slash tools run from the prompt box and use the current workspace folder as their root.
+Slash tools run from the prompt box and use the selected chat session's current workspace folder as their root. The workspace path is captured when a slash tool starts, so switching sessions while a tool runs does not change that running tool's root folder.
 
 ```text
 /extract_file <xlsx|pptx|pdf|docx path>

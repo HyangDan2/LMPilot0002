@@ -248,15 +248,17 @@ class GuiFlowTests(unittest.TestCase):
             ChatRepository(str(db_path)),
             AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
         )
+        window.on_new_chat()
 
         with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(first_folder)):
             window.on_attach_files()
         self.assertEqual(window._attached_file_paths, [str(first_file.resolve())])
         self.assertEqual(window._active_attachment_folder(), str(first_folder.resolve()))
         self.assertEqual(
-            window.workspace_folder_label.text(),
+            window.workspace_status_label.text(),
             f"Current Workspace Folder : {first_folder.resolve()}",
         )
+        self.assertIsNone(getattr(window, "workspace_folder_label", None))
 
         with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(second_folder)):
             window.on_attach_files()
@@ -279,6 +281,7 @@ class GuiFlowTests(unittest.TestCase):
             ChatRepository(str(db_path)),
             AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
         )
+        window.on_new_chat()
 
         with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(folder)):
             window.on_attach_files()
@@ -287,15 +290,72 @@ class GuiFlowTests(unittest.TestCase):
         self.assertEqual(window.attachment_list.count(), 0)
         self.assertEqual(window._active_attachment_folder(), str(folder.resolve()))
         self.assertEqual(
-            window.workspace_folder_label.text(),
+            window.workspace_status_label.text(),
             f"Current Workspace Folder : {folder.resolve()}",
         )
         self.assertTrue(window.clear_attachments_btn.isEnabled())
 
         window._clear_attached_files()
         self.assertIsNone(window._active_attachment_folder())
-        self.assertEqual(window.workspace_folder_label.text(), "Current Workspace Folder : -")
+        self.assertEqual(window.workspace_status_label.text(), "Current Workspace Folder : -")
         self.assertFalse(window.clear_attachments_btn.isEnabled())
+
+        window.close()
+        process_events(self.app, 5)
+
+    def test_workspace_folder_is_tracked_per_session(self) -> None:
+        console = FakeConsole()
+        db_path = Path(tempfile.mkdtemp()) / "app.db"
+        first_folder = Path(tempfile.mkdtemp())
+        second_folder = Path(tempfile.mkdtemp())
+        first_file = first_folder / "first.md"
+        second_file = second_folder / "second.md"
+        first_file.write_text("# first", encoding="utf-8")
+        second_file.write_text("# second", encoding="utf-8")
+        repository = ChatRepository(str(db_path))
+        first_session_id = repository.create_session("First")
+        second_session_id = repository.create_session("Second")
+
+        window = MainWindow(
+            console,
+            repository,
+            AppConfig(llama_cli_path="/bin/echo", model_path="/tmp/model.gguf", backend="cli"),
+        )
+
+        window.current_session_id = first_session_id
+        window._load_session_messages(first_session_id)
+        with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(first_folder)):
+            window.on_attach_files()
+        self.assertEqual(repository.get_session_workspace_folder(first_session_id), str(first_folder.resolve()))
+
+        window.current_session_id = second_session_id
+        window._load_session_messages(second_session_id)
+        self.assertEqual(window.workspace_status_label.text(), "Current Workspace Folder : -")
+        self.assertEqual(window.attachment_list.count(), 0)
+        with patch("src.gui.gui.QFileDialog.getExistingDirectory", return_value=str(second_folder)):
+            window.on_attach_files()
+        self.assertEqual(repository.get_session_workspace_folder(second_session_id), str(second_folder.resolve()))
+
+        window._session_workspace_folders.clear()
+        window.current_session_id = first_session_id
+        window._load_session_messages(first_session_id)
+        self.assertEqual(window._active_attachment_folder(), str(first_folder.resolve()))
+        self.assertEqual(
+            window.workspace_status_label.text(),
+            f"Current Workspace Folder : {first_folder.resolve()}",
+        )
+        self.assertEqual(window.attachment_list.count(), 1)
+        self.assertIn("first.md", window.attachment_list.item(0).text())
+
+        window.current_session_id = second_session_id
+        window._load_session_messages(second_session_id)
+        self.assertEqual(window._active_attachment_folder(), str(second_folder.resolve()))
+        self.assertEqual(
+            window.workspace_status_label.text(),
+            f"Current Workspace Folder : {second_folder.resolve()}",
+        )
+        self.assertEqual(window.attachment_list.count(), 1)
+        self.assertIn("second.md", window.attachment_list.item(0).text())
 
         window.close()
         process_events(self.app, 5)
